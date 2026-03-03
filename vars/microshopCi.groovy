@@ -297,36 +297,38 @@ def call(Map cfg = [:]) {
     }
 
     post {
-      always {
-        sh """#!/usr/bin/env bash
-          set +e
-          echo "================ POST / ALWAYS ================"
+        always {
+            sh """#!/usr/bin/env bash
+            set +e
+            echo "================ POST / ALWAYS ================"
 
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE="docker compose"
-          else
-            COMPOSE="docker-compose"
-          fi
-          C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
+            if docker compose version >/dev/null 2>&1; then
+                COMPOSE=(docker compose)
+            else
+                COMPOSE=(docker-compose)
+            fi
 
-          mkdir -p ci-artifacts
+            FILES=()
+            ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n      ')}
 
-          echo "== Collecting logs =="
-          \$C ps > ci-artifacts/compose-ps.txt 2>&1 || true
-          \$C logs --no-color > ci-artifacts/compose-logs.txt 2>&1 || true
-          \$C config > ci-artifacts/compose-config.rendered.yml 2>&1 || true
+            mkdir -p ci-artifacts
 
-          echo "== Docker summary (host) =="
-          docker ps -a > ci-artifacts/docker-ps-a.txt 2>&1 || true
-          docker network ls > ci-artifacts/docker-networks.txt 2>&1 || true
+            echo "== Collecting logs =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps > ci-artifacts/compose-ps.txt 2>&1 || true
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" logs --no-color > ci-artifacts/compose-logs.txt 2>&1 || true
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config > ci-artifacts/compose-config.rendered.yml 2>&1 || true
 
-          echo "== Cleaning up compose project =="
-          \$C down -v --remove-orphans || true
-        """
+            echo "== Docker summary (host) =="
+            docker ps -a > ci-artifacts/docker-ps-a.txt 2>&1 || true
+            docker network ls > ci-artifacts/docker-networks.txt 2>&1 || true
 
-        archiveArtifacts artifacts: 'ci-artifacts/*', allowEmptyArchive: true
-        cleanWs()
-      }
+            echo "== Cleaning up compose project =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" down -v --remove-orphans || true
+            """
+
+            archiveArtifacts artifacts: 'ci-artifacts/*', allowEmptyArchive: true
+            cleanWs()
+        }
     }
   }
 }
