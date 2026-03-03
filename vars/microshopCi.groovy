@@ -73,7 +73,7 @@ def call(Map cfg = [:]) {
             echo "================ BUILD ================"
 
             COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+            C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
             echo "== Validating Compose Config =="
             \$C config
@@ -90,15 +90,17 @@ def call(Map cfg = [:]) {
         }
       }
 
-      stage("Test (${testBranch} only)") {
-        when { branch testBranch }
+      // Stage names MUST be static in Declarative Pipeline
+      stage('Test') {
+        when { expression { env.BRANCH_NAME == testBranch } }
         steps {
           sh """#!/usr/bin/env bash
             set -euxo pipefail
-            echo "================ TEST (${testBranch.toUpperCase()}) ================"
+            echo "================ TEST (only: ${testBranch.toUpperCase()}) ================"
+            echo "Branch is: \$BRANCH_NAME"
 
             COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+            C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
             mkdir -p ci-artifacts
 
@@ -106,7 +108,6 @@ def call(Map cfg = [:]) {
             \$C up -d ${infraServices.join(' ')}
 
             echo "== Waiting for healthchecks (if supported) =="
-            # --wait exists in compose v2; ignore if unsupported
             \$C up -d --wait ${infraServices.join(' ')} || true
 
             echo "== Current compose ps =="
@@ -142,16 +143,17 @@ def call(Map cfg = [:]) {
         }
       }
 
-      stage("Push Images (${pushBranch} only)") {
-        when { branch pushBranch }
+      stage('Push Images') {
+        when { expression { env.BRANCH_NAME == pushBranch } }
         steps {
           withCredentials([usernamePassword(credentialsId: dockerCredsId, usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
             sh """#!/usr/bin/env bash
               set -euxo pipefail
-              echo "================ PUSH (${pushBranch.toUpperCase()} / DOCKER HUB) ================"
+              echo "================ PUSH (only: ${pushBranch.toUpperCase()} / DOCKER HUB) ================"
+              echo "Branch is: \$BRANCH_NAME"
 
               COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-              C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+              C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
               mkdir -p ci-artifacts
 
@@ -172,22 +174,21 @@ def call(Map cfg = [:]) {
                   base="\$img"
                 fi
 
-                # Keep only repo name (last path segment) and push under Docker Hub username
                 repo="\$(echo "\$base" | awk -F/ '{print \$NF}')"
                 dest_base="\${DOCKERHUB_USER}/\${repo}"
 
                 dest_sha="\${dest_base}:\${GIT_SHA}"
-                dest_main_latest="\${dest_base}:${pushBranch}-latest"
+                dest_branch_latest="\${dest_base}:${pushBranch}-latest"
 
-                echo "== Tagging \$img -> \$dest_sha and \$dest_main_latest =="
+                echo "== Tagging \$img -> \$dest_sha and \$dest_branch_latest =="
                 docker tag "\$img" "\$dest_sha"
-                docker tag "\$img" "\$dest_main_latest"
+                docker tag "\$img" "\$dest_branch_latest"
 
                 echo "== Pushing \$dest_sha =="
                 docker push "\$dest_sha"
 
-                echo "== Pushing \$dest_main_latest =="
-                docker push "\$dest_main_latest"
+                echo "== Pushing \$dest_branch_latest =="
+                docker push "\$dest_branch_latest"
               done < <(\$C config --images | sort -u)
 
               docker logout || true
@@ -196,12 +197,13 @@ def call(Map cfg = [:]) {
         }
       }
 
-      stage("Deploy (${deployBranch} only) - later") {
-        when { branch deployBranch }
+      stage('Deploy') {
+        when { expression { env.BRANCH_NAME == deployBranch } }
         steps {
           sh """#!/usr/bin/env bash
             set -euo pipefail
-            echo "================ DEPLOY (${deployBranch.toUpperCase()}) ================"
+            echo "================ DEPLOY (only: ${deployBranch.toUpperCase()}) ================"
+            echo "Branch is: \$BRANCH_NAME"
             echo "Deploy will be added later."
           """
         }
@@ -215,7 +217,7 @@ def call(Map cfg = [:]) {
           echo "================ POST / ALWAYS ================"
 
           COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-          C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+          C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
           mkdir -p ci-artifacts
 
