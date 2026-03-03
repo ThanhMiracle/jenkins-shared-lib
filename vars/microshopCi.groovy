@@ -83,33 +83,34 @@ def call(Map cfg = [:]) {
       }
 
       stage('Build') {
-        steps {
-          sh """#!/usr/bin/env bash
-            set -euxo pipefail
-            echo "================ BUILD ================"
+            steps {
+                sh """#!/usr/bin/env bash
+                set -euxo pipefail
+                echo "================ BUILD ================"
 
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE="docker compose"
-            else
-              COMPOSE="docker-compose"
-            fi
+                if docker compose version >/dev/null 2>&1; then
+                    COMPOSE=(docker compose)
+                else
+                    COMPOSE=(docker-compose)
+                fi
 
-            C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}"
+                FILES=()
+                ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n      ')}
 
-            echo "== Validating Compose Config =="
-            \$C config
+                echo "== Validating Compose Config =="
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config
 
-            echo "== Pulling base images (best-effort) =="
-            \$C pull --ignore-pull-failures || true
+                echo "== Pulling base images (best-effort) =="
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" pull --ignore-pull-failures || true
 
-            echo "== Building images =="
-            \$C build --pull
+                echo "== Building images =="
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" build --pull
 
-            echo "== Built images =="
-            \$C images || true
-          """
+                echo "== Built images =="
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" images || true
+                """
+            }
         }
-      }
 
       stage('Test') {
         when {
