@@ -1,17 +1,31 @@
 def call(Map cfg = [:]) {
   // ===== Config (override from Jenkinsfile) =====
-  def dockerCredsId = (cfg.dockerCredsId ?: 'dockerhub-creds').toString()
-  def composeFiles  = (cfg.composeFiles  ?: ['docker-compose.yml', 'docker-compose.ci.yml']) as List
+  final String dockerCredsId = (cfg.dockerCredsId ?: 'dockerhub-creds').toString()
+  final List<String> composeFiles = (cfg.composeFiles ?: ['docker-compose.yml', 'docker-compose.ci.yml']) as List<String>
 
   // Branch controls
-  def testBranch   = (cfg.testBranch   ?: 'dev').toString()    // run tests only on this branch
-  def pushBranch   = (cfg.pushBranch   ?: 'main').toString()   // push only on this branch
-  def deployBranch = (cfg.deployBranch ?: 'main').toString()   // deploy placeholder on this branch
+  final String testBranch   = (cfg.testBranch   ?: 'dev').toString()
+  final String pushBranch   = (cfg.pushBranch   ?: 'main').toString()
+  final String deployBranch = (cfg.deployBranch ?: 'main').toString()
 
   // Services to start for tests (infra)
-  def infraServices = (cfg.infraServices ?: ['postgres', 'rabbit', 'mailhog']) as List
+  final List<String> infraServices = (cfg.infraServices ?: ['postgres', 'rabbit', 'mailhog']) as List<String>
   // Test runner services (compose services that run pytest)
-  def testServices  = (cfg.testServices  ?: ['auth-tests', 'product-tests', 'order-tests', 'payment-tests', 'notify-tests']) as List
+  final List<String> testServices  = (cfg.testServices  ?: ['auth-tests', 'product-tests', 'order-tests', 'payment-tests', 'notify-tests']) as List<String>
+
+  // Optional: run test services in parallel (true/false)
+  final boolean parallelTests = (cfg.parallelTests == null ? false : cfg.parallelTests as boolean)
+
+  // Helper: figure out branch name for both Multibranch + freestyle
+  // (env.BRANCH_NAME is Multibranch; env.GIT_BRANCH may be "origin/dev")
+  def resolvedBranchExpr = '''
+    BR="${BRANCH_NAME:-}"
+    if [ -z "$BR" ] && [ -n "${GIT_BRANCH:-}" ]; then
+      BR="${GIT_BRANCH#origin/}"
+      BR="${BR#refs/heads/}"
+    fi
+    echo "$BR"
+  '''.stripIndent().trim()
 
   pipeline {
     agent any
@@ -19,6 +33,7 @@ def call(Map cfg = [:]) {
     options {
       timestamps()
       disableConcurrentBuilds()
+      // ansiColor('xterm') // enable if you have AnsiColor plugin
     }
 
     environment {
@@ -35,14 +50,15 @@ def call(Map cfg = [:]) {
 
       stage('Preflight') {
         steps {
-          sh '''#!/usr/bin/env bash
+          sh """#!/usr/bin/env bash
             set -euo pipefail
             echo "================ PRE-FLIGHT ================"
-            echo "Branch: ${BRANCH_NAME:-unknown}"
-            echo "Node: $(hostname)"
-            echo "User: $(id)"
-            echo "Workspace: $PWD"
-            echo "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}"
+            BRANCH="\$(${resolvedBranchExpr})"
+            echo "Resolved branch: \${BRANCH:-unknown}"
+            echo "Node: \$(hostname)"
+            echo "User: \$(id)"
+            echo "Workspace: \$PWD"
+            echo "COMPOSE_PROJECT_NAME=${env.COMPOSE_PROJECT_NAME}"
             echo
 
             echo "== Docker Info =="
@@ -62,7 +78,7 @@ def call(Map cfg = [:]) {
 
             echo "== DNS sanity (host) =="
             getent hosts api.github.com || true
-          '''
+          """
         }
       }
 
@@ -72,13 +88,18 @@ def call(Map cfg = [:]) {
             set -euxo pipefail
             echo "================ BUILD ================"
 
-            COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-            C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE="docker compose"
+            else
+              COMPOSE="docker-compose"
+            fi
+
+            C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}"
 
             echo "== Validating Compose Config =="
             \$C config
 
-            echo "== Pulling base images =="
+            echo "== Pulling base images (best-effort) =="
             \$C pull --ignore-pull-failures || true
 
             echo "== Building images =="
@@ -90,77 +111,139 @@ def call(Map cfg = [:]) {
         }
       }
 
-      // Stage names MUST be static in Declarative Pipeline
       stage('Test') {
-        when { expression { env.BRANCH_NAME == testBranch } }
+        when {
+          expression {
+            // Safe branch detection in Groovy: prefer BRANCH_NAME, else strip origin/ from GIT_BRANCH
+            def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '')
+            b = b.replaceFirst(/^origin\\//, '').replaceFirst(/^refs\\/heads\\//, '')
+            return b == testBranch
+          }
+        }
         steps {
-          sh """#!/usr/bin/env bash
-            set -euxo pipefail
-            echo "================ TEST (only: ${testBranch.toUpperCase()}) ================"
-            echo "Branch is: \$BRANCH_NAME"
+          script {
+            if (!parallelTests) {
+              sh """#!/usr/bin/env bash
+                set -euxo pipefail
+                echo "================ TEST (only: ${testBranch.toUpperCase()}) ================"
 
-            COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-            C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+                if docker compose version >/dev/null 2>&1; then
+                  COMPOSE="docker compose"
+                else
+                  COMPOSE="docker-compose"
+                fi
+                C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}"
 
-            mkdir -p ci-artifacts
+                mkdir -p ci-artifacts
 
-            echo "== Starting shared services: ${infraServices.join(' ')} =="
-            \$C up -d ${infraServices.join(' ')}
+                echo "== Starting infra: ${infraServices.join(' ')} =="
+                \$C up -d ${infraServices.join(' ')}
 
-            echo "== Waiting for healthchecks (if supported) =="
-            \$C up -d --wait ${infraServices.join(' ')} || true
+                echo "== Waiting for healthchecks (best-effort) =="
+                \$C up -d --wait ${infraServices.join(' ')} || true
 
-            echo "== Current compose ps =="
-            \$C ps || true
-
-            run_test () {
-              svc="\$1"
-              echo
-              echo "---------- RUN TEST: \${svc} ----------"
-
-              set +e
-              \$C run --rm "\${svc}" 2>&1 | tee "ci-artifacts/\${svc}.out.log"
-              rc=\${PIPESTATUS[0]}
-              set -e
-
-              echo "---------- RESULT: \${svc} exit=\${rc} ----------"
-
-              if [ "\${rc}" -ne 0 ]; then
-                echo
-                echo "!!!!! TEST FAILED: \${svc} (exit=\${rc}) !!!!!"
-                echo "== Compose ps (on failure) =="
+                echo "== Current compose ps =="
                 \$C ps || true
 
-                echo "== Compose logs tail (on failure) =="
-                \$C logs --no-color --tail=300 || true
+                run_test () {
+                  svc="\$1"
+                  echo
+                  echo "---------- RUN TEST: \${svc} ----------"
 
-                exit "\${rc}"
-              fi
+                  set +e
+                  \$C run --rm "\${svc}" 2>&1 | tee "ci-artifacts/\${svc}.out.log"
+                  rc=\${PIPESTATUS[0]}
+                  set -e
+
+                  echo "---------- RESULT: \${svc} exit=\${rc} ----------"
+
+                  if [ "\${rc}" -ne 0 ]; then
+                    echo
+                    echo "!!!!! TEST FAILED: \${svc} (exit=\${rc}) !!!!!"
+                    echo "== Compose ps (on failure) =="
+                    \$C ps || true
+
+                    echo "== Compose logs tail (on failure) =="
+                    \$C logs --no-color --tail=300 || true
+
+                    exit "\${rc}"
+                  fi
+                }
+
+                ${testServices.collect { "run_test ${it}" }.join('\n                ')}
+              """
+            } else {
+              // Parallel mode: each test service runs in its own branch
+              def branches = [:]
+              for (String svc : testServices) {
+                branches[svc] = {
+                  sh """#!/usr/bin/env bash
+                    set -euxo pipefail
+                    echo "---------- RUN TEST (parallel): ${svc} ----------"
+
+                    if docker compose version >/dev/null 2>&1; then
+                      COMPOSE="docker compose"
+                    else
+                      COMPOSE="docker-compose"
+                    fi
+                    C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
+
+                    mkdir -p ci-artifacts
+                    \$C run --rm '${svc}' 2>&1 | tee "ci-artifacts/${svc}.out.log"
+                  """
+                }
+              }
+
+              // Start infra once before parallel run
+              sh """#!/usr/bin/env bash
+                set -euxo pipefail
+                echo "== Starting infra for parallel tests: ${infraServices.join(' ')} =="
+
+                if docker compose version >/dev/null 2>&1; then
+                  COMPOSE="docker compose"
+                else
+                  COMPOSE="docker-compose"
+                fi
+                C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
+
+                mkdir -p ci-artifacts
+                \$C up -d ${infraServices.join(' ')}
+                \$C up -d --wait ${infraServices.join(' ')} || true
+                \$C ps || true
+              """
+
+              parallel branches
             }
-
-            ${testServices.collect { "run_test ${it}" }.join('\n            ')}
-          """
+          }
         }
       }
 
       stage('Push Images') {
-        when { expression { env.BRANCH_NAME == pushBranch } }
+        when {
+          expression {
+            def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '')
+            b = b.replaceFirst(/^origin\\//, '').replaceFirst(/^refs\\/heads\\//, '')
+            return b == pushBranch
+          }
+        }
         steps {
           withCredentials([usernamePassword(credentialsId: dockerCredsId, usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
             sh """#!/usr/bin/env bash
               set -euxo pipefail
               echo "================ PUSH (only: ${pushBranch.toUpperCase()} / DOCKER HUB) ================"
-              echo "Branch is: \$BRANCH_NAME"
 
-              COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-              C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+              if docker compose version >/dev/null 2>&1; then
+                COMPOSE="docker compose"
+              else
+                COMPOSE="docker-compose"
+              fi
+              C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
 
               mkdir -p ci-artifacts
 
               GIT_SHA="\$(git rev-parse --short=12 HEAD)"
               echo "GIT_SHA=\$GIT_SHA" | tee ci-artifacts/git-sha.txt
 
-              echo "== Docker Hub login =="
               echo "\$DOCKERHUB_PASS" | docker login -u "\$DOCKERHUB_USER" --password-stdin
 
               echo "== Images from compose =="
@@ -169,12 +252,13 @@ def call(Map cfg = [:]) {
               while read -r img; do
                 [ -z "\$img" ] && continue
 
+                # img could be "thanh2909/auth-service:v0.3" or "auth-service:v0.3" etc.
+                # Strip tag
                 base="\${img%:*}"
-                if [ "\$base" = "\$img" ]; then
-                  base="\$img"
-                fi
+                [ "\$base" = "\$img" ] && base="\$img"
 
-                repo="\$(echo "\$base" | awk -F/ '{print \$NF}')"
+                # repo name is last path segment
+                repo="\${base##*/}"
                 dest_base="\${DOCKERHUB_USER}/\${repo}"
 
                 dest_sha="\${dest_base}:\${GIT_SHA}"
@@ -184,10 +268,7 @@ def call(Map cfg = [:]) {
                 docker tag "\$img" "\$dest_sha"
                 docker tag "\$img" "\$dest_branch_latest"
 
-                echo "== Pushing \$dest_sha =="
                 docker push "\$dest_sha"
-
-                echo "== Pushing \$dest_branch_latest =="
                 docker push "\$dest_branch_latest"
               done < <(\$C config --images | sort -u)
 
@@ -198,12 +279,17 @@ def call(Map cfg = [:]) {
       }
 
       stage('Deploy') {
-        when { expression { env.BRANCH_NAME == deployBranch } }
+        when {
+          expression {
+            def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '')
+            b = b.replaceFirst(/^origin\\//, '').replaceFirst(/^refs\\/heads\\//, '')
+            return b == deployBranch
+          }
+        }
         steps {
           sh """#!/usr/bin/env bash
             set -euo pipefail
             echo "================ DEPLOY (only: ${deployBranch.toUpperCase()}) ================"
-            echo "Branch is: \$BRANCH_NAME"
             echo "Deploy will be added later."
           """
         }
@@ -216,8 +302,12 @@ def call(Map cfg = [:]) {
           set +e
           echo "================ POST / ALWAYS ================"
 
-          COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
-          C="\$COMPOSE -p \$COMPOSE_PROJECT_NAME ${composeFiles.collect { "-f ${it}" }.join(' ')}"
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
+          else
+            COMPOSE="docker-compose"
+          fi
+          C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
 
           mkdir -p ci-artifacts
 
