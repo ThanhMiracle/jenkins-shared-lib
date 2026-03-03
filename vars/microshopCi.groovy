@@ -1,7 +1,17 @@
 def call(Map cfg = [:]) {
-  // allow override defaults from Jenkinsfile if needed
-  def dockerCredsId = cfg.dockerCredsId ?: 'dockerhub-creds'
-  def composeFiles  = cfg.composeFiles  ?: ['docker-compose.yml', 'docker-compose.ci.yml']
+  // ===== Config (override from Jenkinsfile) =====
+  def dockerCredsId = (cfg.dockerCredsId ?: 'dockerhub-creds').toString()
+  def composeFiles  = (cfg.composeFiles  ?: ['docker-compose.yml', 'docker-compose.ci.yml']) as List
+
+  // Branch controls
+  def testBranch   = (cfg.testBranch   ?: 'dev').toString()    // run tests only on this branch
+  def pushBranch   = (cfg.pushBranch   ?: 'main').toString()   // push only on this branch
+  def deployBranch = (cfg.deployBranch ?: 'main').toString()   // deploy placeholder on this branch
+
+  // Services to start for tests (infra)
+  def infraServices = (cfg.infraServices ?: ['postgres', 'rabbit', 'mailhog']) as List
+  // Test runner services (compose services that run pytest)
+  def testServices  = (cfg.testServices  ?: ['auth-tests', 'product-tests', 'order-tests', 'payment-tests', 'notify-tests']) as List
 
   pipeline {
     agent any
@@ -18,8 +28,9 @@ def call(Map cfg = [:]) {
     }
 
     stages {
+
       stage('Checkout') {
-        steps { checkout scm }   // IMPORTANT: checks out micro-ecom (your app repo)
+        steps { checkout scm }
       }
 
       stage('Preflight') {
@@ -27,7 +38,7 @@ def call(Map cfg = [:]) {
           sh '''#!/usr/bin/env bash
             set -euo pipefail
             echo "================ PRE-FLIGHT ================"
-            echo "Branch: ${BRANCH_NAME}"
+            echo "Branch: ${BRANCH_NAME:-unknown}"
             echo "Node: $(hostname)"
             echo "User: $(id)"
             echo "Workspace: $PWD"
@@ -35,7 +46,7 @@ def call(Map cfg = [:]) {
             echo
 
             echo "== Docker Info =="
-            docker version
+            docker version || true
 
             echo "== Docker Compose Info =="
             if docker compose version >/dev/null 2>&1; then
@@ -61,13 +72,8 @@ def call(Map cfg = [:]) {
             set -euxo pipefail
             echo "================ BUILD ================"
 
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE="docker compose"
-            else
-              COMPOSE="docker-compose"
-            fi
-
-            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect{ "-f ${it}" }.join(' ')}"
+            COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
+            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
             echo "== Validating Compose Config =="
             \$C config
@@ -84,26 +90,24 @@ def call(Map cfg = [:]) {
         }
       }
 
-      stage('Test (dev only)') {
-        when { branch 'dev' }
+      stage("Test (${testBranch} only)") {
+        when { branch testBranch }
         steps {
           sh """#!/usr/bin/env bash
             set -euxo pipefail
-            echo "================ TEST (DEV) ================"
+            echo "================ TEST (${testBranch.toUpperCase()}) ================"
 
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE="docker compose"
-            else
-              COMPOSE="docker-compose"
-            fi
+            COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
+            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
-            C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect{ "-f ${it}" }.join(' ')}"
+            mkdir -p ci-artifacts
 
-            echo "== Starting shared services =="
-            \$C up -d postgres rabbit mailhog
+            echo "== Starting shared services: ${infraServices.join(' ')} =="
+            \$C up -d ${infraServices.join(' ')}
 
             echo "== Waiting for healthchecks (if supported) =="
-            \$C up -d --wait postgres rabbit mailhog || true
+            # --wait exists in compose v2; ignore if unsupported
+            \$C up -d --wait ${infraServices.join(' ')} || true
 
             echo "== Current compose ps =="
             \$C ps || true
@@ -112,8 +116,6 @@ def call(Map cfg = [:]) {
               svc="\$1"
               echo
               echo "---------- RUN TEST: \${svc} ----------"
-
-              mkdir -p ci-artifacts
 
               set +e
               \$C run --rm "\${svc}" 2>&1 | tee "ci-artifacts/\${svc}.out.log"
@@ -135,30 +137,21 @@ def call(Map cfg = [:]) {
               fi
             }
 
-            run_test auth-tests
-            run_test product-tests
-            run_test order-tests
-            run_test payment-tests
-            run_test notify-tests
+            ${testServices.collect { "run_test ${it}" }.join('\n            ')}
           """
         }
       }
 
-      stage('Push Images (main only)') {
-        when { branch 'main' }
+      stage("Push Images (${pushBranch} only)") {
+        when { branch pushBranch }
         steps {
           withCredentials([usernamePassword(credentialsId: dockerCredsId, usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
             sh """#!/usr/bin/env bash
               set -euxo pipefail
-              echo "================ PUSH (MAIN / DOCKER HUB) ================"
+              echo "================ PUSH (${pushBranch.toUpperCase()} / DOCKER HUB) ================"
 
-              if docker compose version >/dev/null 2>&1; then
-                COMPOSE="docker compose"
-              else
-                COMPOSE="docker-compose"
-              fi
-
-              C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect{ "-f ${it}" }.join(' ')}"
+              COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
+              C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
               mkdir -p ci-artifacts
 
@@ -175,17 +168,16 @@ def call(Map cfg = [:]) {
                 [ -z "\$img" ] && continue
 
                 base="\${img%:*}"
-                tag="\${img##*:}"
                 if [ "\$base" = "\$img" ]; then
                   base="\$img"
-                  tag="latest"
                 fi
 
+                # Keep only repo name (last path segment) and push under Docker Hub username
                 repo="\$(echo "\$base" | awk -F/ '{print \$NF}')"
                 dest_base="\${DOCKERHUB_USER}/\${repo}"
 
                 dest_sha="\${dest_base}:\${GIT_SHA}"
-                dest_main_latest="\${dest_base}:main-latest"
+                dest_main_latest="\${dest_base}:${pushBranch}-latest"
 
                 echo "== Tagging \$img -> \$dest_sha and \$dest_main_latest =="
                 docker tag "\$img" "\$dest_sha"
@@ -204,14 +196,14 @@ def call(Map cfg = [:]) {
         }
       }
 
-      stage('Deploy (main only) - later') {
-        when { branch 'main' }
+      stage("Deploy (${deployBranch} only) - later") {
+        when { branch deployBranch }
         steps {
-          sh '''#!/usr/bin/env bash
+          sh """#!/usr/bin/env bash
             set -euo pipefail
-            echo "================ DEPLOY (MAIN) ================"
+            echo "================ DEPLOY (${deployBranch.toUpperCase()}) ================"
             echo "Deploy will be added later."
-          '''
+          """
         }
       }
     }
@@ -222,13 +214,8 @@ def call(Map cfg = [:]) {
           set +e
           echo "================ POST / ALWAYS ================"
 
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE="docker compose"
-          else
-            COMPOSE="docker-compose"
-          fi
-
-          C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect{ "-f ${it}" }.join(' ')}"
+          COMPOSE="\$(docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')"
+          C="\$COMPOSE -p ${COMPOSE_PROJECT_NAME} ${composeFiles.collect { "-f ${it}" }.join(' ')}"
 
           mkdir -p ci-artifacts
 
@@ -241,7 +228,7 @@ def call(Map cfg = [:]) {
           docker ps -a > ci-artifacts/docker-ps-a.txt 2>&1 || true
           docker network ls > ci-artifacts/docker-networks.txt 2>&1 || true
 
-          echo "== Cleaning up =="
+          echo "== Cleaning up compose project =="
           \$C down -v --remove-orphans || true
         """
 
