@@ -58,7 +58,7 @@ def call(Map cfg = [:]) {
             echo "Node: \$(hostname)"
             echo "User: \$(id)"
             echo "Workspace: \$PWD"
-            echo "COMPOSE_PROJECT_NAME=${env.COMPOSE_PROJECT_NAME}"
+            echo "COMPOSE_PROJECT_NAME=\$COMPOSE_PROJECT_NAME"
             echo
 
             echo "== Docker Info =="
@@ -83,39 +83,38 @@ def call(Map cfg = [:]) {
       }
 
       stage('Build') {
-            steps {
-                sh """#!/usr/bin/env bash
-                set -euxo pipefail
-                echo "================ BUILD ================"
+        steps {
+          sh """#!/usr/bin/env bash
+            set -euxo pipefail
+            echo "================ BUILD ================"
 
-                if docker compose version >/dev/null 2>&1; then
-                    COMPOSE=(docker compose)
-                else
-                    COMPOSE=(docker-compose)
-                fi
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE=(docker compose)
+            else
+              COMPOSE=(docker-compose)
+            fi
 
-                FILES=()
-                ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n      ')}
+            FILES=()
+            ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n            ')}
 
-                echo "== Validating Compose Config =="
-                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config
+            echo "== Validating Compose Config =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config
 
-                echo "== Pulling base images (best-effort) =="
-                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" pull --ignore-pull-failures || true
+            echo "== Pulling base images (best-effort) =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" pull --ignore-pull-failures || true
 
-                echo "== Building images =="
-                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" build --pull
+            echo "== Building images =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" build --pull
 
-                echo "== Built images =="
-                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" images || true
-                """
-            }
+            echo "== Built images =="
+            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" images || true
+          """
         }
+      }
 
       stage('Test') {
         when {
           expression {
-            // Safe branch detection in Groovy: prefer BRANCH_NAME, else strip origin/ from GIT_BRANCH
             def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '')
             b = b.replaceFirst(/^origin\\//, '').replaceFirst(/^refs\\/heads\\//, '')
             return b == testBranch
@@ -129,22 +128,24 @@ def call(Map cfg = [:]) {
                 echo "================ TEST (only: ${testBranch.toUpperCase()}) ================"
 
                 if docker compose version >/dev/null 2>&1; then
-                  COMPOSE="docker compose"
+                  COMPOSE=(docker compose)
                 else
-                  COMPOSE="docker-compose"
+                  COMPOSE=(docker-compose)
                 fi
-                C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}"
+
+                FILES=()
+                ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n                ')}
 
                 mkdir -p ci-artifacts
 
                 echo "== Starting infra: ${infraServices.join(' ')} =="
-                \$C up -d ${infraServices.join(' ')}
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" up -d ${infraServices.join(' ')}
 
                 echo "== Waiting for healthchecks (best-effort) =="
-                \$C up -d --wait ${infraServices.join(' ')} || true
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" up -d --wait ${infraServices.join(' ')} || true
 
                 echo "== Current compose ps =="
-                \$C ps || true
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps || true
 
                 run_test () {
                   svc="\$1"
@@ -152,7 +153,7 @@ def call(Map cfg = [:]) {
                   echo "---------- RUN TEST: \${svc} ----------"
 
                   set +e
-                  \$C run --rm "\${svc}" 2>&1 | tee "ci-artifacts/\${svc}.out.log"
+                  "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" run --rm "\${svc}" 2>&1 | tee "ci-artifacts/\${svc}.out.log"
                   rc=\${PIPESTATUS[0]}
                   set -e
 
@@ -162,10 +163,10 @@ def call(Map cfg = [:]) {
                     echo
                     echo "!!!!! TEST FAILED: \${svc} (exit=\${rc}) !!!!!"
                     echo "== Compose ps (on failure) =="
-                    \$C ps || true
+                    "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps || true
 
                     echo "== Compose logs tail (on failure) =="
-                    \$C logs --no-color --tail=300 || true
+                    "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" logs --no-color --tail=300 || true
 
                     exit "\${rc}"
                   fi
@@ -174,7 +175,26 @@ def call(Map cfg = [:]) {
                 ${testServices.collect { "run_test ${it}" }.join('\n                ')}
               """
             } else {
-              // Parallel mode: each test service runs in its own branch
+              // Parallel mode: start infra once, then run tests in parallel
+              sh """#!/usr/bin/env bash
+                set -euxo pipefail
+                echo "== Starting infra for parallel tests: ${infraServices.join(' ')} =="
+
+                if docker compose version >/dev/null 2>&1; then
+                  COMPOSE=(docker compose)
+                else
+                  COMPOSE=(docker-compose)
+                fi
+
+                FILES=()
+                ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n                ')}
+
+                mkdir -p ci-artifacts
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" up -d ${infraServices.join(' ')}
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" up -d --wait ${infraServices.join(' ')} || true
+                "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps || true
+              """
+
               def branches = [:]
               for (String svc : testServices) {
                 branches[svc] = {
@@ -183,35 +203,19 @@ def call(Map cfg = [:]) {
                     echo "---------- RUN TEST (parallel): ${svc} ----------"
 
                     if docker compose version >/dev/null 2>&1; then
-                      COMPOSE="docker compose"
+                      COMPOSE=(docker compose)
                     else
-                      COMPOSE="docker-compose"
+                      COMPOSE=(docker-compose)
                     fi
-                    C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
+
+                    FILES=()
+                    ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n                    ')}
 
                     mkdir -p ci-artifacts
-                    \$C run --rm '${svc}' 2>&1 | tee "ci-artifacts/${svc}.out.log"
+                    "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" run --rm '${svc}' 2>&1 | tee "ci-artifacts/${svc}.out.log"
                   """
                 }
               }
-
-              // Start infra once before parallel run
-              sh """#!/usr/bin/env bash
-                set -euxo pipefail
-                echo "== Starting infra for parallel tests: ${infraServices.join(' ')} =="
-
-                if docker compose version >/dev/null 2>&1; then
-                  COMPOSE="docker compose"
-                else
-                  COMPOSE="docker-compose"
-                fi
-                C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
-
-                mkdir -p ci-artifacts
-                \$C up -d ${infraServices.join(' ')}
-                \$C up -d --wait ${infraServices.join(' ')} || true
-                \$C ps || true
-              """
 
               parallel branches
             }
@@ -234,11 +238,13 @@ def call(Map cfg = [:]) {
               echo "================ PUSH (only: ${pushBranch.toUpperCase()} / DOCKER HUB) ================"
 
               if docker compose version >/dev/null 2>&1; then
-                COMPOSE="docker compose"
+                COMPOSE=(docker compose)
               else
-                COMPOSE="docker-compose"
+                COMPOSE=(docker-compose)
               fi
-              C="\$COMPOSE -p '${env.COMPOSE_PROJECT_NAME}' ${composeFiles.collect { "-f '${it}'" }.join(' ')}
+
+              FILES=()
+              ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n              ')}
 
               mkdir -p ci-artifacts
 
@@ -248,13 +254,12 @@ def call(Map cfg = [:]) {
               echo "\$DOCKERHUB_PASS" | docker login -u "\$DOCKERHUB_USER" --password-stdin
 
               echo "== Images from compose =="
-              \$C config --images | sort -u | tee ci-artifacts/compose-images.txt
+              "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config --images | sort -u | tee ci-artifacts/compose-images.txt
 
               while read -r img; do
                 [ -z "\$img" ] && continue
 
-                # img could be "thanh2909/auth-service:v0.3" or "auth-service:v0.3" etc.
-                # Strip tag
+                # Strip tag (if any)
                 base="\${img%:*}"
                 [ "\$base" = "\$img" ] && base="\$img"
 
@@ -271,7 +276,7 @@ def call(Map cfg = [:]) {
 
                 docker push "\$dest_sha"
                 docker push "\$dest_branch_latest"
-              done < <(\$C config --images | sort -u)
+              done < <("\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config --images | sort -u)
 
               docker logout || true
             """
@@ -298,38 +303,38 @@ def call(Map cfg = [:]) {
     }
 
     post {
-        always {
-            sh """#!/usr/bin/env bash
-            set +e
-            echo "================ POST / ALWAYS ================"
+      always {
+        sh """#!/usr/bin/env bash
+          set +e
+          echo "================ POST / ALWAYS ================"
 
-            if docker compose version >/dev/null 2>&1; then
-                COMPOSE=(docker compose)
-            else
-                COMPOSE=(docker-compose)
-            fi
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE=(docker compose)
+          else
+            COMPOSE=(docker-compose)
+          fi
 
-            FILES=()
-            ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n      ')}
+          FILES=()
+          ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n          ')}
 
-            mkdir -p ci-artifacts
+          mkdir -p ci-artifacts
 
-            echo "== Collecting logs =="
-            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps > ci-artifacts/compose-ps.txt 2>&1 || true
-            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" logs --no-color > ci-artifacts/compose-logs.txt 2>&1 || true
-            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config > ci-artifacts/compose-config.rendered.yml 2>&1 || true
+          echo "== Collecting logs =="
+          "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" ps > ci-artifacts/compose-ps.txt 2>&1 || true
+          "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" logs --no-color > ci-artifacts/compose-logs.txt 2>&1 || true
+          "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config > ci-artifacts/compose-config.rendered.yml 2>&1 || true
 
-            echo "== Docker summary (host) =="
-            docker ps -a > ci-artifacts/docker-ps-a.txt 2>&1 || true
-            docker network ls > ci-artifacts/docker-networks.txt 2>&1 || true
+          echo "== Docker summary (host) =="
+          docker ps -a > ci-artifacts/docker-ps-a.txt 2>&1 || true
+          docker network ls > ci-artifacts/docker-networks.txt 2>&1 || true
 
-            echo "== Cleaning up compose project =="
-            "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" down -v --remove-orphans || true
-            """
+          echo "== Cleaning up compose project =="
+          "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" down -v --remove-orphans || true
+        """
 
-            archiveArtifacts artifacts: 'ci-artifacts/*', allowEmptyArchive: true
-            cleanWs()
-        }
+        archiveArtifacts artifacts: 'ci-artifacts/*', allowEmptyArchive: true
+        cleanWs()
+      }
     }
   }
 }
