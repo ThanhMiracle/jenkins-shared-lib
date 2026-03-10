@@ -389,29 +389,29 @@ def call(Map cfg = [:]) {
 
       chmod 600 app.env
 
-      echo "== Writing images.env =="
+        echo "== Writing images.env =="
       cat > images.env <<EOF
-      AUTH_IMAGE=${DOCKERHUB_USER}/auth:${GIT_SHA}
-      PRODUCT_IMAGE=${DOCKERHUB_USER}/product:${GIT_SHA}
-      ORDER_IMAGE=${DOCKERHUB_USER}/order:${GIT_SHA}
-      NOTIFY_IMAGE=${DOCKERHUB_USER}/notify:${GIT_SHA}
-      WEB_IMAGE=${DOCKERHUB_USER}/web:${GIT_SHA}
-      GATEWAY_IMAGE=${DOCKERHUB_USER}/gateway:${GIT_SHA}
+      AUTH_IMAGE=\${DOCKERHUB_USER}/auth:\${GIT_SHA}
+      PRODUCT_IMAGE=\${DOCKERHUB_USER}/product:\${GIT_SHA}
+      ORDER_IMAGE=\${DOCKERHUB_USER}/order:\${GIT_SHA}
+      NOTIFY_IMAGE=\${DOCKERHUB_USER}/notify:\${GIT_SHA}
+      WEB_IMAGE=\${DOCKERHUB_USER}/web:\${GIT_SHA}
+      GATEWAY_IMAGE=\${DOCKERHUB_USER}/gateway:\${GIT_SHA}
       EOF
 
       chmod 600 images.env
 
       echo "== Docker login =="
-      echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+      echo "\$DOCKERHUB_PASS" | docker login -u "\$DOCKERHUB_USER" --password-stdin
 
       echo "== Pulling release images =="
-      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env pull
+      \$COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env pull
 
       echo "== Starting/updating services =="
-      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env up -d --remove-orphans
+      \$COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env up -d --remove-orphans
 
       echo "== Current status =="
-      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env ps
+      \$COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env ps
 
       echo "== Docker logout =="
       docker logout || true
