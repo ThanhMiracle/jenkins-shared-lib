@@ -244,7 +244,7 @@ def call(Map cfg = [:]) {
               fi
 
               FILES=()
-              ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n              ')}
+              ${composeFiles.collect { "FILES+=(-f ${it})" }.join('\n        ')}
 
               mkdir -p ci-artifacts
 
@@ -253,17 +253,19 @@ def call(Map cfg = [:]) {
 
               echo "\$DOCKERHUB_PASS" | docker login -u "\$DOCKERHUB_USER" --password-stdin
 
-              echo "== Images from compose =="
               "\${COMPOSE[@]}" -p "\$COMPOSE_PROJECT_NAME" "\${FILES[@]}" config --images | sort -u | tee ci-artifacts/compose-images.txt
 
               while read -r img; do
                 [ -z "\$img" ] && continue
 
-                # Strip tag (if any)
+                if ! docker image inspect "\$img" >/dev/null 2>&1; then
+                  echo "ERROR: local image not found: \$img"
+                  exit 1
+                fi
+
                 base="\${img%:*}"
                 [ "\$base" = "\$img" ] && base="\$img"
 
-                # repo name is last path segment
                 repo="\${base##*/}"
                 dest_base="\${DOCKERHUB_USER}/\${repo}"
 
@@ -288,16 +290,135 @@ def call(Map cfg = [:]) {
         when {
           expression {
             def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '')
-            b = b.replaceFirst(/^origin\\//, '').replaceFirst(/^refs\\/heads\\//, '')
+            b = b.replaceFirst(/^origin\//, '').replaceFirst(/^refs\/heads\//, '')
             return b == deployBranch
           }
         }
         steps {
-          sh """#!/usr/bin/env bash
-            set -euo pipefail
-            echo "================ DEPLOY (only: ${deployBranch.toUpperCase()}) ================"
-            echo "Deploy will be added later."
-          """
+          withCredentials([usernamePassword(credentialsId: dockerCredsId, usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+            sshagent(['ec2-ssh']) {
+              sh """#!/usr/bin/env bash
+                set -euo pipefail
+
+                : "\${BASTION_HOST:?BASTION_HOST is required}"
+                : "\${PRIVATE_EC2_IP:?PRIVATE_EC2_IP is required}"
+                : "\${DOCKERHUB_USER:?DOCKERHUB_USER is required}"
+                : "\${DOCKERHUB_PASS:?DOCKERHUB_PASS is required}"
+
+                BASTION_USER="ec2-user"
+                BASTION_HOST="\${BASTION_HOST}"
+                APP_USER="ec2-user"
+                APP_HOST="\${PRIVATE_EC2_IP}"
+                APP_DIR="/home/ec2-user/app"
+                GIT_SHA="\$(git rev-parse --short=12 HEAD)"
+
+                echo "================ DEPLOY ================"
+                echo "Deploy branch: ${deployBranch}"
+                echo "Target app host: \$APP_HOST"
+                echo "App dir: \$APP_DIR"
+                echo "GIT_SHA: \$GIT_SHA"
+
+                test -f docker-compose.prod.yml || { echo "ERROR: docker-compose.prod.yml not found in workspace"; exit 1; }
+                test -f nginx.conf || { echo "ERROR: nginx.conf not found in workspace"; exit 1; }
+
+                echo "== Ensure remote app dir exists =="
+                ssh -o StrictHostKeyChecking=no \\
+                    -J "\${BASTION_USER}@\${BASTION_HOST}" \\
+                    "\${APP_USER}@\${APP_HOST}" \\
+                    "mkdir -p '\${APP_DIR}'"
+
+                echo "== Copy deployment files to remote host =="
+                scp -o StrictHostKeyChecking=no \\
+                    -o ProxyJump="\${BASTION_USER}@\${BASTION_HOST}" \\
+                    docker-compose.prod.yml \\
+                    "\${APP_USER}@\${APP_HOST}:\${APP_DIR}/docker-compose.prod.yml"
+
+                scp -o StrictHostKeyChecking=no \\
+                    -o ProxyJump="\${BASTION_USER}@\${BASTION_HOST}" \\
+                    nginx.conf \\
+                    "\${APP_USER}@\${APP_HOST}:\${APP_DIR}/nginx.conf"
+
+                echo "== Run remote deploy =="
+                ssh -o StrictHostKeyChecking=no \\
+                    -J "\${BASTION_USER}@\${BASTION_HOST}" \\
+                    "\${APP_USER}@\${APP_HOST}" \\
+                    "DOCKERHUB_USER='\${DOCKERHUB_USER}' DOCKERHUB_PASS='\${DOCKERHUB_PASS}' GIT_SHA='\${GIT_SHA}' APP_DIR='\${APP_DIR}' bash -s" <<'REMOTE'
+      set -euo pipefail
+
+      echo "== Remote preflight =="
+      command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not installed"; exit 1; }
+      command -v aws >/dev/null 2>&1 || { echo "ERROR: aws cli not installed"; exit 1; }
+      command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not installed"; exit 1; }
+
+      if docker compose version >/dev/null 2>&1; then
+        COMPOSE="docker compose"
+      elif docker-compose version >/dev/null 2>&1; then
+        COMPOSE="docker-compose"
+      else
+        echo "ERROR: docker compose not found"
+        exit 1
+      fi
+
+      mkdir -p "$APP_DIR"
+      cd "$APP_DIR"
+
+      test -f docker-compose.prod.yml || { echo "ERROR: docker-compose.prod.yml missing on remote host"; exit 1; }
+      test -f nginx.conf || { echo "ERROR: nginx.conf missing on remote host"; exit 1; }
+
+      echo "== Refreshing app.env from AWS Secrets Manager =="
+      SECRET_JSON="$(aws secretsmanager get-secret-value \
+        --secret-id shop/prod/app \
+        --query SecretString \
+        --output text)"
+
+      cat > app.env <<EOF
+      JWT_SECRET=$(echo "$SECRET_JSON" | jq -r .JWT_SECRET)
+      AUTH_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .AUTH_DATABASE_URL)
+      PRODUCT_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .PRODUCT_DATABASE_URL)
+      ORDER_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .ORDER_DATABASE_URL)
+      RABBITMQ_URL=$(echo "$SECRET_JSON" | jq -r .RABBITMQ_URL)
+      AWS_REGION=$(echo "$SECRET_JSON" | jq -r .AWS_REGION)
+      SNS_TOPIC_ARN_NOTIFY=$(echo "$SECRET_JSON" | jq -r .SNS_TOPIC_ARN_NOTIFY)
+      FRONTEND_BASE_URL=$(echo "$SECRET_JSON" | jq -r .FRONTEND_BASE_URL)
+      S3_BUCKET=$(echo "$SECRET_JSON" | jq -r .S3_BUCKET)
+      IMAGES_CDN_URL=$(echo "$SECRET_JSON" | jq -r .IMAGES_CDN_URL)
+      VITE_AUTH_URL=$(echo "$SECRET_JSON" | jq -r .VITE_AUTH_URL)
+      VITE_PRODUCT_URL=$(echo "$SECRET_JSON" | jq -r .VITE_PRODUCT_URL)
+      VITE_ORDER_URL=$(echo "$SECRET_JSON" | jq -r .VITE_ORDER_URL)
+      EOF
+
+      chmod 600 app.env
+
+      echo "== Writing images.env =="
+      cat > images.env <<EOF
+      AUTH_IMAGE=${DOCKERHUB_USER}/auth:${GIT_SHA}
+      PRODUCT_IMAGE=${DOCKERHUB_USER}/product:${GIT_SHA}
+      ORDER_IMAGE=${DOCKERHUB_USER}/order:${GIT_SHA}
+      NOTIFY_IMAGE=${DOCKERHUB_USER}/notify:${GIT_SHA}
+      WEB_IMAGE=${DOCKERHUB_USER}/web:${GIT_SHA}
+      GATEWAY_IMAGE=${DOCKERHUB_USER}/gateway:${GIT_SHA}
+      EOF
+
+      chmod 600 images.env
+
+      echo "== Docker login =="
+      echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+
+      echo "== Pulling release images =="
+      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env pull
+
+      echo "== Starting/updating services =="
+      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env up -d --remove-orphans
+
+      echo "== Current status =="
+      $COMPOSE -f docker-compose.prod.yml --env-file app.env --env-file images.env ps
+
+      echo "== Docker logout =="
+      docker logout || true
+      REMOTE
+              """
+            }
+          }
         }
       }
     }
