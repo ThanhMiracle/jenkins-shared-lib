@@ -366,25 +366,25 @@ def call(Map cfg = [:]) {
       test -f nginx.conf || { echo "ERROR: nginx.conf missing on remote host"; exit 1; }
 
       echo "== Refreshing app.env from AWS Secrets Manager =="
-      SECRET_JSON="$(aws secretsmanager get-secret-value \
+      SECRET_JSON="\$(aws secretsmanager get-secret-value \
         --secret-id shop/prod/app \
         --query SecretString \
         --output text)"
 
       cat > app.env <<EOF
-      JWT_SECRET=$(echo "$SECRET_JSON" | jq -r .JWT_SECRET)
-      AUTH_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .AUTH_DATABASE_URL)
-      PRODUCT_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .PRODUCT_DATABASE_URL)
-      ORDER_DATABASE_URL=$(echo "$SECRET_JSON" | jq -r .ORDER_DATABASE_URL)
-      RABBITMQ_URL=$(echo "$SECRET_JSON" | jq -r .RABBITMQ_URL)
-      AWS_REGION=$(echo "$SECRET_JSON" | jq -r .AWS_REGION)
-      SNS_TOPIC_ARN_NOTIFY=$(echo "$SECRET_JSON" | jq -r .SNS_TOPIC_ARN_NOTIFY)
-      FRONTEND_BASE_URL=$(echo "$SECRET_JSON" | jq -r .FRONTEND_BASE_URL)
-      S3_BUCKET=$(echo "$SECRET_JSON" | jq -r .S3_BUCKET)
-      IMAGES_CDN_URL=$(echo "$SECRET_JSON" | jq -r .IMAGES_CDN_URL)
-      VITE_AUTH_URL=$(echo "$SECRET_JSON" | jq -r .VITE_AUTH_URL)
-      VITE_PRODUCT_URL=$(echo "$SECRET_JSON" | jq -r .VITE_PRODUCT_URL)
-      VITE_ORDER_URL=$(echo "$SECRET_JSON" | jq -r .VITE_ORDER_URL)
+      JWT_SECRET=\$(echo "\$SECRET_JSON" | jq -r .JWT_SECRET)
+      AUTH_DATABASE_URL=\$(echo "\$SECRET_JSON" | jq -r .AUTH_DATABASE_URL)
+      PRODUCT_DATABASE_URL=\$(echo "\$SECRET_JSON" | jq -r .PRODUCT_DATABASE_URL)
+      ORDER_DATABASE_URL=\$(echo "\$SECRET_JSON" | jq -r .ORDER_DATABASE_URL)
+      RABBITMQ_URL=\$(echo "\$SECRET_JSON" | jq -r .RABBITMQ_URL)
+      AWS_REGION=\$(echo "\$SECRET_JSON" | jq -r .AWS_REGION)
+      SNS_TOPIC_ARN_NOTIFY=\$(echo "\$SECRET_JSON" | jq -r .SNS_TOPIC_ARN_NOTIFY)
+      FRONTEND_BASE_URL=\$(echo "\$SECRET_JSON" | jq -r .FRONTEND_BASE_URL)
+      S3_BUCKET=\$(echo "\$SECRET_JSON" | jq -r .S3_BUCKET)
+      IMAGES_CDN_URL=\$(echo "\$SECRET_JSON" | jq -r .IMAGES_CDN_URL)
+      VITE_AUTH_URL=\$(echo "\$SECRET_JSON" | jq -r .VITE_AUTH_URL)
+      VITE_PRODUCT_URL=\$(echo "\$SECRET_JSON" | jq -r .VITE_PRODUCT_URL)
+      VITE_ORDER_URL=\$(echo "\$SECRET_JSON" | jq -r .VITE_ORDER_URL)
       EOF
 
       chmod 600 app.env
