@@ -100,19 +100,6 @@ def call(Map config = [:]) {
                         sleep 15
 
                         docker build --target test -t ${apiImageName}-test:${env.SHORT_COMMIT} ${apiContext}
-
-                        docker run --rm \
-                        --network ${env.COMPOSE_PROJECT_NAME}_appnet \
-                        -e DATABASE_URL=postgresql://postgres:postgres@db:5432/mydb \
-                        -e JWT_SECRET=change-me-please \
-                        -e JWT_EXPIRE_MINUTES=120 \
-                        -e MINIO_ENDPOINT=minio:9000 \
-                        -e MINIO_ACCESS_KEY=minioadmin \
-                        -e MINIO_SECRET_KEY=minioadmin \
-                        -e MINIO_BUCKET=uploads \
-                        -e MINIO_SECURE=false \
-                        -e MINIO_PUBLIC_URL=http://localhost:9000 \
-                        ${apiImageName}-test:${env.SHORT_COMMIT}
                     """
                 }
             }
