@@ -108,10 +108,13 @@ def call(Map config = [:]) {
                     branch 'dev'
                 }
                 steps {
-                    sh """
-                        set -e
-                        docker build -t ${env.API_IMAGE} -f ${apiContext}/${apiDockerfile} ${apiContext}
-                    """
+                    script {
+                        dockerBuildOnly(
+                            apiImage: env.API_IMAGE,
+                            apiContext: apiContext,
+                            apiDockerfile: apiDockerfile
+                        )
+                    }
                 }
             }
 
