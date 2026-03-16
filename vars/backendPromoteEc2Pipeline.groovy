@@ -25,7 +25,7 @@ def call(Map config = [:]) {
         options {
             timestamps()
             disableConcurrentBuilds()
-            ansiColor('xterm')
+            // ansiColor('xterm')
             buildDiscarder(logRotator(numToKeepStr: '20'))
         }
 
