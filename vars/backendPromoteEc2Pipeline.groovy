@@ -3,7 +3,7 @@ def call(Map config = [:]) {
     def apiImageName         = config.get('apiImageName', 'simple-fullstack-api')
     def apiContext           = config.get('apiContext', './backend')
     def apiDockerfile        = config.get('apiDockerfile', 'Dockerfile')
-    def apiTestCommand       = config.get('apiTestCommand', 'pytest -q tests')
+    def apiTestCommand       = config.get('apiTestCommand', 'pytest -q -p no:cacheprovider tests')
 
     def composeDevFile       = config.get('composeDevFile', 'docker-compose.yml')
     def composeProdFile      = config.get('composeProdFile', 'docker-compose.prod.yml')
@@ -96,11 +96,26 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -e
-                        docker compose -f ${composeDevFile} run --rm api ${apiTestCommand}
+                        docker compose -f ${composeDevFile} up -d db minio
+                        sleep 15
+
+                        docker build --target test -t ${apiImageName}-test:${env.SHORT_COMMIT} ${apiContext}
+
+                        docker run --rm \
+                        --network ${env.COMPOSE_PROJECT_NAME}_appnet \
+                        -e DATABASE_URL=postgresql://postgres:postgres@db:5432/mydb \
+                        -e JWT_SECRET=change-me-please \
+                        -e JWT_EXPIRE_MINUTES=120 \
+                        -e MINIO_ENDPOINT=minio:9000 \
+                        -e MINIO_ACCESS_KEY=minioadmin \
+                        -e MINIO_SECRET_KEY=minioadmin \
+                        -e MINIO_BUCKET=uploads \
+                        -e MINIO_SECURE=false \
+                        -e MINIO_PUBLIC_URL=http://localhost:9000 \
+                        ${apiImageName}-test:${env.SHORT_COMMIT}
                     """
                 }
             }
-
             stage('Build Backend Image') {
                 when {
                     branch 'dev'
