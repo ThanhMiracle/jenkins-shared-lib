@@ -3,7 +3,7 @@ def call(Map config = [:]) {
     def apiImageName         = config.get('apiImageName', 'simple-fullstack-api')
     def apiContext           = config.get('apiContext', './backend')
     def apiDockerfile        = config.get('apiDockerfile', 'Dockerfile')
-    def apiTestCommand       = config.get('apiTestCommand', 'pytest -q')
+    def apiTestCommand       = config.get('apiTestCommand', 'pytest -q tests')
 
     def composeDevFile       = config.get('composeDevFile', 'docker-compose.yml')
     def composeProdFile      = config.get('composeProdFile', 'docker-compose.prod.yml')
@@ -25,7 +25,6 @@ def call(Map config = [:]) {
         options {
             timestamps()
             disableConcurrentBuilds()
-            // ansiColor('xterm')
             buildDiscarder(logRotator(numToKeepStr: '20'))
         }
 
@@ -44,7 +43,9 @@ def call(Map config = [:]) {
                             returnStdout: true
                         ).trim()
 
-                        env.API_IMAGE = "${registry}/${apiImageName}:${env.SHORT_COMMIT}"
+                        env.API_IMAGE = registry?.trim()
+                            ? "${registry}/${apiImageName}:${env.SHORT_COMMIT}"
+                            : "${apiImageName}:${env.SHORT_COMMIT}"
 
                         echo "Branch: ${env.BRANCH_NAME_SAFE}"
                         echo "API image: ${env.API_IMAGE}"
@@ -64,14 +65,39 @@ def call(Map config = [:]) {
                 }
             }
 
+            stage('Build Test Image') {
+                when {
+                    branch 'dev'
+                }
+                steps {
+                    sh """
+                        set -e
+                        docker compose -f ${composeDevFile} build api
+                    """
+                }
+            }
+
+            stage('Wait for Dependencies') {
+                when {
+                    branch 'dev'
+                }
+                steps {
+                    sh """
+                        set -e
+                        sleep 15
+                    """
+                }
+            }
+
             stage('Test Backend') {
                 when {
                     branch 'dev'
                 }
                 steps {
-                    dir(apiContext) {
-                        sh apiTestCommand
-                    }
+                    sh """
+                        set -e
+                        docker compose -f ${composeDevFile} run --rm api ${apiTestCommand}
+                    """
                 }
             }
 
