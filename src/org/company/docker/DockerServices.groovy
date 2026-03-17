@@ -1,9 +1,9 @@
 package org.company.docker
 
-class DockerBuildOnly implements Serializable {
+class DockerServices implements Serializable {
     def steps
 
-    DockerBuildOnly(steps) {
+    DockerServices(steps) {
         this.steps = steps
     }
 

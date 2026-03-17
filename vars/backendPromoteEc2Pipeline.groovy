@@ -1,4 +1,4 @@
-import org.company.docker.dockerServices
+import org.company.docker.DockerServices
 
 def call(Map config = [:]) {
     def registry             = config.get('registry', '')
@@ -50,85 +50,60 @@ def call(Map config = [:]) {
                         env.API_IMAGE = registry?.trim()
                             ? "${registry}/${apiImageName}:${env.SHORT_COMMIT}"
                             : "${apiImageName}:${env.SHORT_COMMIT}"
-
-                        echo "Branch: ${env.BRANCH_NAME_SAFE}"
-                        echo "API image: ${env.API_IMAGE}"
                     }
                 }
             }
 
-            stage('Start Test Dependencies') {
-                when {
-                    branch 'dev'
-                }
-                steps {
-                    sh """
-                        set -e
-                        docker compose -f ${composeDevFile} up -d db minio
-                    """
-                }
+        stage('Test Backend') {
+            when {
+                branch 'dev'
             }
+            steps {
+                sh """
+                    set -e
+                    export COMPOSE_PROJECT_NAME=myappci
 
-            stage('Build Test Image') {
-                when {
-                    branch 'dev'
-                }
-                steps {
-                    sh """
-                        set -e
-                        docker compose -f ${composeDevFile} build api
-                    """
-                }
-            }
+                    docker compose -f ${composeDevFile} up -d db minio
+                    sleep 15
 
-            stage('Wait for Dependencies') {
-                when {
-                    branch 'dev'
-                }
-                steps {
-                    sh """
-                        set -e
-                        sleep 15
-                    """
-                }
-            }
+                    docker build --target test \
+                        -t ${apiImageName}-test:${env.SHORT_COMMIT} \
+                        -f ${apiContext}/${apiDockerfile} \
+                        ${apiContext}
 
-            stage('Test Backend') {
-                when {
-                    branch 'dev'
-                }
-                steps {
-                    sh """
-                        set -e
-                        export COMPOSE_PROJECT_NAME=myappci
-
-                        docker compose -f ${composeDevFile} up -d db minio
-                        sleep 15
-
-                        docker build --target test -t ${apiImageName}-test:${env.SHORT_COMMIT} ${apiContext}
-
-                        docker run --rm \
-                        --network ${COMPOSE_PROJECT_NAME}_default \
+                    docker run --rm \
+                        --network myappci_default \
                         ${apiImageName}-test:${env.SHORT_COMMIT}
+                """
+            }
+            post {
+                always {
+                    sh """
+                        export COMPOSE_PROJECT_NAME=myappci
+                        docker compose -f ${composeDevFile} down -v
                     """
                 }
             }
+        }
 
-            stage('Build Backend Image') {
-                when {
-                    branch 'dev'
-                }
-                steps {
-                    script {
-                        def dockerBuilder = new dockerServices(this)
-                        dockerBuilder.build(
-                            apiImage: env.API_IMAGE,
-                            apiContext: apiContext,
-                            apiDockerfile: apiDockerfile
-                        )
+        stage('Build Backend Image') {
+            when {
+                branch 'dev'
+            }
+            steps {
+                script {
+                    def dockerBuilder = new DockerServices(this)
+                    dockerBuilder.build(
+                        apiImage: env.API_IMAGE,
+                        apiContext: apiContext,
+                        apiDockerfile: apiDockerfile
+                    )
+                            }
+                        }
                     }
                 }
             }
+        }   
 
             // stage('Push Backend Image') {
             //     when {
