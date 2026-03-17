@@ -52,35 +52,35 @@ def call(Map config = [:]) {
                 }
             }
 
-            stage('Test Backend') {
-                when {
-                    branch 'dev'
-                }
-                steps {
+         stage('Test Backend') {
+            when {
+                branch 'dev'
+            }
+            steps {
+                sh """
+                    set -e
+
+                    docker compose -p myappci -f ${composeDevFile} up -d db minio
+                    sleep 15
+
+                    docker build --target test \
+                    -t ${apiImageName}-test:${env.SHORT_COMMIT} \
+                    -f ${apiContext}/${apiDockerfile} \
+                    ${apiContext}
+
+                    docker run --rm \
+                    --network myappci_appnet \
+                    ${apiImageName}-test:${env.SHORT_COMMIT}
+                """
+            }
+            post {
+                always {
                     sh """
-                        set -e
-
-                        docker compose -p myappci -f ${composeDevFile} up -d db minio
-                        sleep 15
-
-                        docker build --target test \
-                        -t ${apiImageName}-test:${env.SHORT_COMMIT} \
-                        -f ${apiContext}/${apiDockerfile} \
-                        ${apiContext}
-
-                        docker run --rm \
-                        --network myappci_default \
-                        ${apiImageName}-test:${env.SHORT_COMMIT}
+                        docker compose -p myappci -f ${composeDevFile} down -v || true
                     """
                 }
-                post {
-                    always {
-                        sh """
-                            docker compose -p myappci -f ${composeDevFile} down -v || true
-                        """
-                    }
-                }
             }
+        }
 
             stage('Build Backend Image') {
                 when {
