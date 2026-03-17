@@ -1,4 +1,4 @@
-import org.company.docker.dockerServices.DockerBuildOnly
+import org.company.docker.dockerServices
 
 def call(Map config = [:]) {
     def registry             = config.get('registry', '')
@@ -120,7 +120,7 @@ def call(Map config = [:]) {
                 }
                 steps {
                     script {
-                        def dockerBuilder = new DockerBuildOnly(this)
+                        def dockerBuilder = new dockerServices(this)
                         dockerBuilder.build(
                             apiImage: env.API_IMAGE,
                             apiContext: apiContext,
