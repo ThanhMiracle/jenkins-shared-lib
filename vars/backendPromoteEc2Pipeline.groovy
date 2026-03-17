@@ -1,3 +1,5 @@
+import org.company.docker.dockerServices.DockerBuildOnly
+
 def call(Map config = [:]) {
     def registry             = config.get('registry', '')
     def apiImageName         = config.get('apiImageName', 'simple-fullstack-api')
@@ -18,6 +20,8 @@ def call(Map config = [:]) {
     def envCredentials       = config.get('envCredentials', [])
     def smokeUrl             = config.get('smokeUrl', '')
     def smokeApiUrl          = config.get('smokeApiUrl', '')
+
+    
 
     pipeline {
         agent any
@@ -96,20 +100,28 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -e
+                        export COMPOSE_PROJECT_NAME=myappci
+
                         docker compose -f ${composeDevFile} up -d db minio
                         sleep 15
 
                         docker build --target test -t ${apiImageName}-test:${env.SHORT_COMMIT} ${apiContext}
+
+                        docker run --rm \
+                        --network ${COMPOSE_PROJECT_NAME}_default \
+                        ${apiImageName}-test:${env.SHORT_COMMIT}
                     """
                 }
             }
+
             stage('Build Backend Image') {
                 when {
                     branch 'dev'
                 }
                 steps {
                     script {
-                        dockerBuildOnly(
+                        def dockerBuilder = new DockerBuildOnly(this)
+                        dockerBuilder.build(
                             apiImage: env.API_IMAGE,
                             apiContext: apiContext,
                             apiDockerfile: apiDockerfile
