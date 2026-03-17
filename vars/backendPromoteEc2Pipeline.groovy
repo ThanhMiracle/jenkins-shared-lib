@@ -5,7 +5,7 @@ def call(Map config = [:]) {
     def apiImageName         = config.get('apiImageName', 'simple-fullstack-api')
     def apiContext           = config.get('apiContext', './backend')
     def apiDockerfile        = config.get('apiDockerfile', 'Dockerfile')
-    def apiTestCommand       = config.get('apiTestCommand', 'pytest -q -p no:cacheprovider tests')
+    // def apiTestCommand       = config.get('apiTestCommand', 'pytest -q -p no:cacheprovider tests')
 
     def composeDevFile       = config.get('composeDevFile', 'docker-compose.yml')
     def composeProdFile      = config.get('composeProdFile', 'docker-compose.prod.yml')
@@ -20,8 +20,6 @@ def call(Map config = [:]) {
     def envCredentials       = config.get('envCredentials', [])
     def smokeUrl             = config.get('smokeUrl', '')
     def smokeApiUrl          = config.get('smokeApiUrl', '')
-
-    
 
     pipeline {
         agent any
@@ -54,56 +52,53 @@ def call(Map config = [:]) {
                 }
             }
 
-        stage('Test Backend') {
-            when {
-                branch 'dev'
-            }
-            steps {
-                sh """
-                    set -e
-                    export COMPOSE_PROJECT_NAME=myappci
-
-                    docker compose -f ${composeDevFile} up -d db minio
-                    sleep 15
-
-                    docker build --target test \
-                        -t ${apiImageName}-test:${env.SHORT_COMMIT} \
-                        -f ${apiContext}/${apiDockerfile} \
-                        ${apiContext}
-
-                    docker run --rm \
-                        --network myappci_default \
-                        ${apiImageName}-test:${env.SHORT_COMMIT}
-                """
-            }
-            post {
-                always {
+            stage('Test Backend') {
+                when {
+                    branch 'dev'
+                }
+                steps {
                     sh """
+                        set -e
                         export COMPOSE_PROJECT_NAME=myappci
-                        docker compose -f ${composeDevFile} down -v
+
+                        docker compose -f ${composeDevFile} up -d db minio
+                        sleep 15
+
+                        docker build --target test \
+                          -t ${apiImageName}-test:${env.SHORT_COMMIT} \
+                          -f ${apiContext}/${apiDockerfile} \
+                          ${apiContext}
+
+                        docker run --rm \
+                          --network myappci_default \
+                          ${apiImageName}-test:${env.SHORT_COMMIT}
                     """
                 }
-            }
-        }
-
-        stage('Build Backend Image') {
-            when {
-                branch 'dev'
-            }
-            steps {
-                script {
-                    def dockerBuilder = new DockerServices(this)
-                    dockerBuilder.build(
-                        apiImage: env.API_IMAGE,
-                        apiContext: apiContext,
-                        apiDockerfile: apiDockerfile
-                    )
-                            }
-                        }
+                post {
+                    always {
+                        sh """
+                            export COMPOSE_PROJECT_NAME=myappci
+                            docker compose -f ${composeDevFile} down -v
+                        """
                     }
                 }
             }
-           
+
+            stage('Build Backend Image') {
+                when {
+                    branch 'dev'
+                }
+                steps {
+                    script {
+                        def dockerBuilder = new DockerServices(this)
+                        dockerBuilder.build(
+                            apiImage: env.API_IMAGE,
+                            apiContext: apiContext,
+                            apiDockerfile: apiDockerfile
+                        )
+                    }
+                }
+            }
 
             // stage('Push Backend Image') {
             //     when {
