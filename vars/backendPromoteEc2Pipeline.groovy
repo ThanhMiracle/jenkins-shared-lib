@@ -103,7 +103,7 @@ def call(Map config = [:]) {
                     }
                 }
             }
-        }   
+           
 
             // stage('Push Backend Image') {
             //     when {
