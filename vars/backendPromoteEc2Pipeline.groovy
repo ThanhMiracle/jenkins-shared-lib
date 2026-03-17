@@ -70,6 +70,15 @@ def call(Map config = [:]) {
 
                     docker run --rm \
                     --network myappci_appnet \
+                    -e DATABASE_URL=postgresql://postgres:postgres@db:5432/mydb \
+                    -e JWT_SECRET=change-me-please \
+                    -e JWT_EXPIRE_MINUTES=120 \
+                    -e MINIO_ENDPOINT=minio:9000 \
+                    -e MINIO_ACCESS_KEY=minioadmin \
+                    -e MINIO_SECRET_KEY=minioadmin \
+                    -e MINIO_BUCKET=uploads \
+                    -e MINIO_SECURE=false \
+                    -e MINIO_PUBLIC_URL=http://localhost:9000 \
                     ${apiImageName}-test:${env.SHORT_COMMIT}
                 """
             }
