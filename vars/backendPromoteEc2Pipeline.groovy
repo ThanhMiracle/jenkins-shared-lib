@@ -59,26 +59,24 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -e
-                        export COMPOSE_PROJECT_NAME=myappci
 
-                        docker compose -f ${composeDevFile} up -d db minio
+                        docker compose -p myappci -f ${composeDevFile} up -d db minio
                         sleep 15
 
                         docker build --target test \
-                          -t ${apiImageName}-test:${env.SHORT_COMMIT} \
-                          -f ${apiContext}/${apiDockerfile} \
-                          ${apiContext}
+                        -t ${apiImageName}-test:${env.SHORT_COMMIT} \
+                        -f ${apiContext}/${apiDockerfile} \
+                        ${apiContext}
 
                         docker run --rm \
-                          --network myappci_default \
-                          ${apiImageName}-test:${env.SHORT_COMMIT}
+                        --network myappci_default \
+                        ${apiImageName}-test:${env.SHORT_COMMIT}
                     """
                 }
                 post {
                     always {
                         sh """
-                            export COMPOSE_PROJECT_NAME=myappci
-                            docker compose -f ${composeDevFile} down -v
+                            docker compose -p myappci -f ${composeDevFile} down -v || true
                         """
                     }
                 }
