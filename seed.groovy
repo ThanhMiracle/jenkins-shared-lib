@@ -2,8 +2,8 @@ folder('microshop') {
     description('Microshop service CI pipelines')
 }
 
-def repoUrl = 'https://your-git-url/microshop.git'
-def credsId = 'your-git-credentials-id'
+def repoUrl = 'https://github.com/ThanhMiracle/jenkins-shared-lib'
+def credsId = 'github-pat'
 
 def services = [
     [name: 'auth',    scriptPath: 'services/auth-service/Jenkinsfile'],
