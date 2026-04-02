@@ -17,7 +17,7 @@ if (jenkins.getItem('seed-job') == null) {
     def scm = new GitSCM(
         GitSCM.createRepoList(
             'https://github.com/ThanhMiracle/jenkins-shared-lib.git',
-            'github-pat'
+            'github-token'
         ),
         Collections.emptyList(),
         Collections.emptyList(),
