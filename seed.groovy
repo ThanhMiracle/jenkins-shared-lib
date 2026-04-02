@@ -1,8 +1,7 @@
 folder('microshop') {
     description('Microshop service CI pipelines')
 }
-
-def repoUrl = 'https://github.com/ThanhMiracle/jenkins-shared-lib'
+def repoUrl = 'https://github.com/ThanhMiracle/micro-ecom'
 def credsId = 'github-pat'
 
 def services = [
