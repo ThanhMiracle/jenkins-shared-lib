@@ -19,7 +19,7 @@ def call(Map config = [:]) {
 
         options {
             timestamps()
-            // ansiColor('xterm')
+            ansiColor('xterm')
             disableConcurrentBuilds()
             buildDiscarder(logRotator(numToKeepStr: '20'))
         }
@@ -55,7 +55,7 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -eux
-                        docker compose -f docker-compose.yaml -f docker-compose.ci.yaml -p "${PROJECT_NAME}" build ${buildServices}
+                        docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "${PROJECT_NAME}" build ${buildServices}
                     """
                 }
             }
@@ -67,7 +67,7 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -eux
-                        docker compose -f docker-compose.yaml -f docker-compose.ci.yaml -p "${PROJECT_NAME}" up -d ${startServices}
+                        docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "${PROJECT_NAME}" up -d ${startServices}
                     """
                 }
             }
@@ -76,7 +76,7 @@ def call(Map config = [:]) {
                 steps {
                     sh """
                         set -eux
-                        docker compose -f docker-compose.yaml -f docker-compose.ci.yaml -p "${PROJECT_NAME}" run --rm ${TEST_SERVICE}
+                        docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "${PROJECT_NAME}" run --rm ${TEST_SERVICE}
                     """
                 }
             }
@@ -86,8 +86,8 @@ def call(Map config = [:]) {
             always {
                 sh '''
                     set +e
-                    docker compose -f docker-compose.yaml -f docker-compose.ci.yaml -p "${PROJECT_NAME}" logs --no-color > "compose-${SERVICE_NAME}.log" || true
-                    docker compose -f docker-compose.yaml -f docker-compose.ci.yaml -p "${PROJECT_NAME}" down -v --remove-orphans || true
+                    docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "${PROJECT_NAME}" logs --no-color > "compose-${SERVICE_NAME}.log" || true
+                    docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "${PROJECT_NAME}" down -v --remove-orphans || true
                 '''
                 archiveArtifacts artifacts: "compose-${SERVICE_NAME}.log, reports/${SERVICE_NAME}/*.xml", allowEmptyArchive: true
                 junit testResults: "${REPORT_GLOB}", allowEmptyResults: true
