@@ -35,6 +35,9 @@ class ComposeHelper implements Serializable {
         script.sh """
             set -eux
             docker compose ${files()} -p "${config.projectName}" run --rm ${config.testService}
+            echo "=== reports after tests ==="
+            find reports -maxdepth 3 -type f | sort || true
+            ls -la "reports/${config.serviceName}" || true
         """
     }
 
