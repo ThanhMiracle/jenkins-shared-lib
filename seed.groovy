@@ -1,29 +1,24 @@
-import org.yaml.snakeyaml.Yaml
+services.each { svc ->
+    pipelineJob(svc.name) {
+        description("Pipeline for ${svc.name}")
 
-def yaml = new Yaml()
-def config = yaml.load(readFileFromWorkspace('jenkins/services.yml'))
-
-def repoUrl = config.repoUrl
-def credsId = config.credentialsId
-
-config.services.each { svc ->
-    multibranchPipelineJob("${svc.name}-mb") {
-        branchSources {
-            git {
-                id("${svc.name}-repo")
-                remote(repoUrl)
-                credentialsId(credsId)
-            }
+        parameters {
+            stringParam('BRANCH', 'main', 'Git branch to build')
         }
 
-        factory {
-            workflowBranchProjectFactory {
+        definition {
+            cpsScm {
+                scm {
+                    git {
+                        remote {
+                            url(repoUrl)
+                            credentials(credsId)
+                        }
+                        branch("\${BRANCH}")
+                    }
+                }
                 scriptPath(svc.scriptPath)
             }
-        }
-
-        triggers {
-            periodic(1)
         }
     }
 }
