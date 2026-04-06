@@ -15,23 +15,23 @@ class TrivyHelper implements Serializable {
     }
 
     static void imageScan(script, config) {
+        def imageName = "micro-ecom/${config.serviceName}:ci"
+
         script.sh """
             set -eux
             mkdir -p "reports/${config.serviceName}/trivy"
             mkdir -p .trivycache
 
-            IMAGE_NAME="micro-ecom/${config.serviceName}:ci"
-
             docker run --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "\$PWD:/workspace" \
-              -v "\$PWD/.trivycache:/root/.cache/trivy" \
-              aquasec/trivy:latest image \
-              --severity "${config.trivySeverity}" \
-              --exit-code "${config.trivyImageExitCode}" \
-              --format table \
-              --output "/workspace/reports/${config.serviceName}/trivy/image-scan.txt" \
-              "${IMAGE_NAME}"
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "\$PWD:/workspace" \
+            -v "\$PWD/.trivycache:/root/.cache/trivy" \
+            aquasec/trivy:latest image \
+            --severity "${config.trivySeverity}" \
+            --exit-code "${config.trivyImageExitCode}" \
+            --format table \
+            --output "/workspace/reports/${config.serviceName}/trivy/image-scan.txt" \
+            "${imageName}"
         """
     }
 }
