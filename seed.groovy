@@ -1,34 +1,26 @@
-def repoUrl = 'https://github.com/ThanhMiracle/micro-ecom.git'
-def credsId = 'github-token'
+def config = readYaml file: 'envs/master.yml'
 
-def services = [
-    [name: 'auth',    scriptPath: 'services/auth-service/Jenkinsfile'],
-    [name: 'product', scriptPath: 'services/product-service/Jenkinsfile'],
-    [name: 'order',   scriptPath: 'services/order-service/Jenkinsfile'],
-    [name: 'payment', scriptPath: 'services/payment-service/Jenkinsfile'],
-    [name: 'notify',  scriptPath: 'services/notification-service/Jenkinsfile']
-]
+def repoUrl = config.repoUrl
+def credsId = config.credentialsId
 
-services.each { svc ->
-    pipelineJob(svc.name) {
-
-        parameters {
-            stringParam('BRANCH', 'main', 'Git branch to build')
+config.services.each { svc ->
+    multibranchPipelineJob("${svc.name}-mb") {
+        branchSources {
+            git {
+                id("${svc.name}-repo")
+                remote(repoUrl)
+                credentialsId(credsId)
+            }
         }
-        
-        definition {
-            cpsScm {
-                scm {
-                    git {
-                        remote {
-                            url(repoUrl)
-                            credentials(credsId)
-                        }
-                        branch("\${BRANCH}")
-                    }
-                }
+
+        factory {
+            workflowBranchProjectFactory {
                 scriptPath(svc.scriptPath)
             }
+        }
+
+        triggers {
+            periodic(1)
         }
     }
 }
