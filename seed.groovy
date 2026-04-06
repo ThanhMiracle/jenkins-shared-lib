@@ -14,13 +14,17 @@ services.each { svc ->
                 credentialsId(credsId)
             }
         }
+
         factory {
             workflowBranchProjectFactory {
                 scriptPath(svc.scriptPath)
             }
         }
+
         triggers {
-            periodic(1)
+            periodicFolderTrigger {
+                interval('1m')
+            }
         }
     }
 }
