@@ -39,7 +39,7 @@ def call(Map rawConfig = [:]) {
                 TRIVY_FS_EXIT_CODE = "${config.trivyFsExitCode ?: '0'}"
                 TRIVY_IMAGE_EXIT_CODE = "${config.trivyImageExitCode ?: '0'}"
             }
-        }
+        
 
         stages {
             stage('Checkout') {
