@@ -4,15 +4,25 @@ credentialsId: github-token
 services:
   - name: auth
     scriptPath: services/auth-service/Jenkinsfile
-
+    sonar: true
+    trivy: true
+  
   - name: product
     scriptPath: services/product-service/Jenkinsfile
+    sonar: true
+    trivy: true
 
   - name: order
     scriptPath: services/order-service/Jenkinsfile
+    sonar: true
+    trivy: true
 
   - name: payment
     scriptPath: services/payment-service/Jenkinsfile
+    sonar: true
+    trivy: true
 
   - name: notify
     scriptPath: services/notification-service/Jenkinsfile
+    sonar: true
+    trivy: true

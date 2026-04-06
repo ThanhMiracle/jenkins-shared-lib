@@ -1,4 +1,7 @@
-def config = readYaml file: 'envs/master.yml'
+import org.yaml.snakeyaml.Yaml
+
+def yaml = new Yaml()
+def config = yaml.load(readFileFromWorkspace('jenkins/services.yml'))
 
 def repoUrl = config.repoUrl
 def credsId = config.credentialsId
