@@ -18,7 +18,7 @@ class SonarHelper implements Serializable {
     }
 
     static void qualityGate(script) {
-        script.timeout(time: 10, unit: 'MINUTES') {
+        script.timeout(time: 4, unit: 'MINUTES') {
             script.waitForQualityGate abortPipeline: true
         }
     }
