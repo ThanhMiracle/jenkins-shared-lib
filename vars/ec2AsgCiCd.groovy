@@ -71,7 +71,7 @@ def call(Map rawConfig = [:]) {
                         docker build --pull \
                           -t '${config.frontendImage}:${env.RELEASE_TAG}' \
                           '${config.frontendContext}'
-                        docker build --pull \
+                        docker build --pull --target runtime \
                           -t '${config.backendImage}:${env.RELEASE_TAG}' \
                           '${config.backendContext}'
                     """

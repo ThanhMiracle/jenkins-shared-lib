@@ -42,7 +42,8 @@ class AsgPipelineConfig implements Serializable {
         c.composeFile = (raw.composeFile ?: 'docker-compose.yml').toString()
         c.nginxDir = (raw.nginxDir ?: 'nginx').toString()
         c.testCommand = (raw.testCommand ?: '''
-            docker build -t fullstack-backend-ci:${RELEASE_TAG} ./backend
+            docker build --target test \
+              -t fullstack-backend-ci:${RELEASE_TAG} ./backend
             docker run --rm \
               -e DATABASE_URL=sqlite:////tmp/app.db \
               -e JWT_SECRET=ci-secret \
@@ -53,9 +54,7 @@ class AsgPipelineConfig implements Serializable {
               -e MINIO_BUCKET=uploads \
               -e MINIO_SECURE=false \
               -e MINIO_PUBLIC_URL=http://127.0.0.1:9000 \
-              -v "$PWD/backend/tests:/app/tests:ro" \
-              fullstack-backend-ci:${RELEASE_TAG} \
-              pytest -q -p no:cacheprovider /app/tests
+              fullstack-backend-ci:${RELEASE_TAG}
         ''').toString()
         c.awsCredentialsId = (raw.awsCredentialsId ?: '').toString()
         c.awsRegion = (raw.awsRegion ?: 'ap-southeast-1').toString()
