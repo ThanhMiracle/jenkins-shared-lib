@@ -12,7 +12,7 @@ if (jenkins.getItem('seed-job') == null) {
     println('Creating seed-job...')
 
     def job = jenkins.createProject(FreeStyleProject, 'seed-job')
-    job.setDescription('Bootstrap Job DSL seed job for microshop')
+    job.setDescription('Bootstrap Job DSL for the full-stack frontend/backend application')
 
     def scm = new GitSCM(
         GitSCM.createRepoList(
@@ -32,7 +32,8 @@ if (jenkins.getItem('seed-job') == null) {
 
     def dsl = new ExecuteDslScripts()
     dsl.setTargets('seed.groovy')
-    dsl.setRemovedJobAction(RemovedJobAction.DELETE)
+    // Preserve old microservice build history; jobs no longer in seed.groovy are disabled.
+    dsl.setRemovedJobAction(RemovedJobAction.DISABLE)
     dsl.setRemovedViewAction(RemovedViewAction.DELETE)
     dsl.setLookupStrategy(LookupStrategy.JENKINS_ROOT)
     dsl.setIgnoreExisting(false)
