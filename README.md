@@ -13,25 +13,26 @@ Refresh.
 
 ```text
 .
-├── envs/                         # Cấu hình seed job theo môi trường
 ├── examples/Jenkinsfile.ec2-asg # Jenkinsfile để copy sang repo ứng dụng
 ├── resources/org/ci/             # EC2 bootstrap script
 ├── src/org/ci/                   # Validation cấu hình pipeline
 ├── vars/ec2AsgCiCd.groovy        # Full-stack CI/CD pipeline
+├── jenkins/plugins.txt            # Jenkins plugins bắt buộc
 ├── seed.groovy                   # Tạo một multibranch job duy nhất
 └── docs/ec2-asg-cicd.md          # Hướng dẫn Jenkins và AWS
 ```
 
 ## Cài đặt nhanh
 
-1. Khai báo repository này trong Jenkins Global Pipeline Libraries với tên
-   `jenkins-shared-lib`.
+1. Tạo Jenkins credentials `github-pat`, `dockerhub-creds` và (nếu cần)
+   `aws-prod`.
 2. Copy [Jenkinsfile mẫu](examples/Jenkinsfile.ec2-asg) vào repository ứng dụng.
-3. Sửa Docker context, credentials ID và các AWS resource ID.
-4. Chạy `seed-job` với `TARGET_ENV=dev`, `staging` hoặc `prod`.
+3. Khai báo các environment variables AWS được liệt kê trong tài liệu.
+4. Chạy `seed-job`; Jenkinsfile tự tải shared library với tên `micro-lib@main`.
 
 Seed job đọc source từ `https://github.com/ThanhMiracle/docker.git` và tạo đúng
-một multibranch job: `docker-<environment>-mb`.
+một multibranch job: `docker-mb`. Mọi branch chạy CI; chỉ `main` push image và
+deploy.
 
 Xem [hướng dẫn đầy đủ](docs/ec2-asg-cicd.md) để cấu hình S3, SSM, IAM, Launch
 Template, ALB và Auto Scaling Group.

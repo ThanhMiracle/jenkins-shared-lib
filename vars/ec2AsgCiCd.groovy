@@ -9,7 +9,6 @@ def call(Map rawConfig = [:]) {
 
         options {
             timestamps()
-            ansiColor('xterm')
             disableConcurrentBuilds()
             buildDiscarder(logRotator(numToKeepStr: '20'))
         }
@@ -43,7 +42,6 @@ def call(Map rawConfig = [:]) {
                         test -d '${config.nginxDir}'
                         docker version
                         docker compose version
-                        aws --version
                         docker compose -f '${config.composeFile}' config --quiet
                     """
                 }
@@ -72,11 +70,9 @@ def call(Map rawConfig = [:]) {
                         set -eux
                         docker build --pull \
                           -t '${config.frontendImage}:${env.RELEASE_TAG}' \
-                          -t '${config.frontendImage}:latest' \
                           '${config.frontendContext}'
                         docker build --pull \
                           -t '${config.backendImage}:${env.RELEASE_TAG}' \
-                          -t '${config.backendImage}:latest' \
                           '${config.backendContext}'
                     """
                 }
@@ -97,9 +93,21 @@ def call(Map rawConfig = [:]) {
                 }
             }
 
+            stage('Validate deployment') {
+                when {
+                    branch 'main'
+                }
+                steps {
+                    script {
+                        config.validateDeployment()
+                    }
+                    sh 'aws --version'
+                }
+            }
+
             stage('Push images') {
                 when {
-                    branch config.deployBranch
+                    branch 'main'
                 }
                 steps {
                     withCredentials([usernamePassword(
@@ -115,8 +123,12 @@ def call(Map rawConfig = [:]) {
                                 --username "\${DOCKER_USERNAME}" --password-stdin
                             set -x
                             docker push '${config.frontendImage}:${env.RELEASE_TAG}'
+                            docker tag '${config.frontendImage}:${env.RELEASE_TAG}' \
+                              '${config.frontendImage}:latest'
                             docker push '${config.frontendImage}:latest'
                             docker push '${config.backendImage}:${env.RELEASE_TAG}'
+                            docker tag '${config.backendImage}:${env.RELEASE_TAG}' \
+                              '${config.backendImage}:latest'
                             docker push '${config.backendImage}:latest'
                             docker logout '${config.dockerRegistry}'
                         """
@@ -126,7 +138,7 @@ def call(Map rawConfig = [:]) {
 
             stage('Create deployment bundle') {
                 when {
-                    branch config.deployBranch
+                    branch 'main'
                 }
                 steps {
                     script {
@@ -155,7 +167,7 @@ def call(Map rawConfig = [:]) {
 
             stage('Deploy ASG') {
                 when {
-                    branch config.deployBranch
+                    branch 'main'
                 }
                 options {
                     timeout(time: 45, unit: 'MINUTES')
@@ -185,7 +197,14 @@ def call(Map rawConfig = [:]) {
         post {
             always {
                 archiveArtifacts artifacts: 'release-*.tgz', allowEmptyArchive: true
-                sh 'docker logout >/dev/null 2>&1 || true'
+                sh """
+                    docker logout '${config.dockerRegistry}' >/dev/null 2>&1 || true
+                    docker image rm \
+                      '${config.frontendImage}:${env.RELEASE_TAG}' \
+                      '${config.backendImage}:${env.RELEASE_TAG}' \
+                      'fullstack-backend-ci:${env.RELEASE_TAG}' \
+                      >/dev/null 2>&1 || true
+                """
             }
         }
     }
@@ -195,6 +214,7 @@ private void deployToAsg(script, config) {
     def artifactUri = "s3://${config.artifactBucket}/releases/release-${script.env.RELEASE_TAG}.tgz"
     script.sh """
         set -eux
+        aws --version
         aws s3 cp 'release-${script.env.RELEASE_TAG}.tgz' '${artifactUri}' \
           --region '${config.awsRegion}'
     """

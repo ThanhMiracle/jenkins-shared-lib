@@ -1,7 +1,6 @@
 package org.ci
 
 class AsgPipelineConfig implements Serializable {
-    String deployBranch
     String dockerCredentialsId
     String dockerRegistry
     String frontendImage
@@ -23,13 +22,8 @@ class AsgPipelineConfig implements Serializable {
 
     static AsgPipelineConfig from(Map raw) {
         [
-            'dockerCredentialsId',
             'frontendImage',
-            'backendImage',
-            'artifactBucket',
-            'environmentParameter',
-            'autoScalingGroup',
-            'launchTemplateId'
+            'backendImage'
         ].each { key ->
             if (!raw[key]) {
                 throw new IllegalArgumentException("${key} is required")
@@ -37,8 +31,7 @@ class AsgPipelineConfig implements Serializable {
         }
 
         def c = new AsgPipelineConfig()
-        c.deployBranch = (raw.deployBranch ?: 'main').toString()
-        c.dockerCredentialsId = raw.dockerCredentialsId.toString()
+        c.dockerCredentialsId = (raw.dockerCredentialsId ?: '').toString()
         c.dockerRegistry = (raw.dockerRegistry ?: 'docker.io').toString()
         c.frontendImage = raw.frontendImage.toString()
         c.backendImage = raw.backendImage.toString()
@@ -66,11 +59,25 @@ class AsgPipelineConfig implements Serializable {
         ''').toString()
         c.awsCredentialsId = (raw.awsCredentialsId ?: '').toString()
         c.awsRegion = (raw.awsRegion ?: 'ap-southeast-1').toString()
-        c.artifactBucket = raw.artifactBucket.toString()
-        c.environmentParameter = raw.environmentParameter.toString()
-        c.autoScalingGroup = raw.autoScalingGroup.toString()
-        c.launchTemplateId = raw.launchTemplateId.toString()
+        c.artifactBucket = (raw.artifactBucket ?: '').toString()
+        c.environmentParameter = (raw.environmentParameter ?: '').toString()
+        c.autoScalingGroup = (raw.autoScalingGroup ?: '').toString()
+        c.launchTemplateId = (raw.launchTemplateId ?: '').toString()
         c.trivyEnabled = raw.get('trivyEnabled', true) as boolean
         return c
+    }
+
+    void validateDeployment() {
+        [
+            dockerCredentialsId: dockerCredentialsId,
+            artifactBucket: artifactBucket,
+            environmentParameter: environmentParameter,
+            autoScalingGroup: autoScalingGroup,
+            launchTemplateId: launchTemplateId
+        ].each { key, value ->
+            if (!value?.trim()) {
+                throw new IllegalArgumentException("${key} is required on main")
+            }
+        }
     }
 }

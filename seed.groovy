@@ -1,35 +1,33 @@
-def targetEnv = System.getenv('TARGET_ENV') ?: 'dev'
-def config = evaluate(readFileFromWorkspace("envs/${targetEnv}.groovy"))
+def appName = 'docker'
+def repoUrl = 'https://github.com/ThanhMiracle/docker.git'
+def credentialsId = 'github-pat'
 
-def appName = config.appName
-def repoUrl = config.repoUrl
-def credsId = config.credentialsId
-def scriptPath = config.scriptPath ?: 'Jenkinsfile'
-
-if (!appName || !repoUrl || !credsId) {
-    throw new IllegalArgumentException('appName, repoUrl and credentialsId are required')
-}
-
-multibranchPipelineJob("${appName}-${targetEnv}-mb") {
-    description("Full-stack frontend/backend pipeline for ${targetEnv}")
+multibranchPipelineJob("${appName}-mb") {
+    description('CI for every branch; build, push and deploy main to EC2 ASG')
 
     branchSources {
         git {
-            id("${appName}-${targetEnv}-repo")
+            id("${appName}-repo")
             remote(repoUrl)
-            credentialsId(credsId)
+            credentialsId(credentialsId)
         }
     }
 
     factory {
         workflowBranchProjectFactory {
-            scriptPath(scriptPath)
+            scriptPath('Jenkinsfile')
         }
     }
 
     triggers {
         periodicFolderTrigger {
             interval('5m')
+        }
+    }
+
+    orphanedItemStrategy {
+        discardOldItems {
+            numToKeep(20)
         }
     }
 }

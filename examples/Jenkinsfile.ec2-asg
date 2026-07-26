@@ -1,8 +1,13 @@
-@Library('micro-lib') _
+library(
+    identifier: 'micro-lib@main',
+    retriever: modernSCM([
+        $class: 'GitSCMSource',
+        remote: 'https://github.com/ThanhMiracle/jenkins-shared-lib.git',
+        credentialsId: 'github-pat'
+    ])
+)
 
 ec2AsgCiCd(
-    deployBranch: 'main',
-
     // Docker Hub repositories (không thêm tag ở đây).
     dockerCredentialsId: 'dockerhub-creds',
     dockerRegistry: 'docker.io',
@@ -33,13 +38,14 @@ ec2AsgCiCd(
           pytest -q -p no:cacheprovider /app/tests
     ''',
 
-    // Để trống awsCredentialsId nếu Jenkins agent dùng IAM role.
-    awsCredentialsId: 'aws-prod',
-    awsRegion: 'ap-southeast-1',
-    artifactBucket: 'my-app-deployment-artifacts',
-    environmentParameter: '/my-app/prod/docker-env',
-    autoScalingGroup: 'my-app-prod-asg',
-    launchTemplateId: 'lt-0123456789abcdef0',
+    // Configure in Jenkins global/folder environment variables.
+    // AWS_CREDENTIALS_ID can be empty when the agent has an IAM role.
+    awsCredentialsId: env.AWS_CREDENTIALS_ID ?: '',
+    awsRegion: env.AWS_REGION ?: 'ap-southeast-1',
+    artifactBucket: env.DEPLOY_ARTIFACT_BUCKET,
+    environmentParameter: env.DEPLOY_ENV_PARAMETER,
+    autoScalingGroup: env.DEPLOY_ASG_NAME,
+    launchTemplateId: env.DEPLOY_LAUNCH_TEMPLATE_ID,
 
     trivyEnabled: true
 )

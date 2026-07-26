@@ -5,11 +5,11 @@ backend trong một job.
 
 ## Luồng release
 
-1. Checkout và validate Docker/Compose/AWS CLI.
+1. Checkout và validate Docker/Compose.
 2. Build backend source hiện tại thành image CI và chạy `pytest` trong image đó.
 3. Build hai image frontend và backend, tag bằng 12 ký tự Git SHA.
 4. Quét `HIGH,CRITICAL` bằng Trivy.
-5. Khi build nhánh `main`, login và push image lên Docker Hub.
+5. Khi build nhánh `main`, validate AWS CLI, login và push image lên Docker Hub.
 6. Tạo Compose override trỏ đúng image SHA và upload bundle lên S3.
 7. Tạo Launch Template version mới với user-data của release.
 8. Cập nhật ASG và chờ Instance Refresh hoàn tất. AWS tự rollback nếu refresh lỗi.
@@ -17,8 +17,8 @@ backend trong một job.
 ## Cách dùng
 
 Copy [Jenkinsfile mẫu](../examples/Jenkinsfile.ec2-asg) vào root của repository ứng
-dụng và sửa các giá trị cho đúng hạ tầng. Trong Jenkins, khai báo shared library
-với tên `jenkins-shared-lib`.
+dụng và sửa các giá trị cho đúng hạ tầng. Jenkinsfile hiện tải shared library
+trực tiếp với identifier `micro-lib@main`.
 
 Repository ứng dụng cần có:
 
@@ -47,11 +47,36 @@ Agent cần có:
 
 Jenkins credentials:
 
+- `github-pat`: credential đọc GitHub repositories
 - `dockerhub-creds`: loại Username with password
 - `aws-prod`: loại AWS Credentials (cần plugin AWS Credentials)
 
 Nếu Jenkins chạy trên EC2/ECS có IAM role, bỏ hẳn `awsCredentialsId` khỏi
 Jenkinsfile. Đây là cách được khuyến nghị vì không lưu access key trong Jenkins.
+
+Khai báo ở Jenkins global environment hoặc folder properties:
+
+```text
+AWS_REGION=ap-southeast-1
+AWS_CREDENTIALS_ID=aws-prod
+DEPLOY_ARTIFACT_BUCKET=<S3 bucket name>
+DEPLOY_ENV_PARAMETER=/my-app/prod/docker-env
+DEPLOY_ASG_NAME=<Auto Scaling Group name>
+DEPLOY_LAUNCH_TEMPLATE_ID=lt-xxxxxxxxxxxxxxxxx
+```
+
+`AWS_CREDENTIALS_ID` có thể để trống khi agent dùng IAM role. Bốn biến
+`DEPLOY_*` chỉ bắt buộc khi build nhánh `main`; branch khác vẫn có thể chạy CI
+trước khi hạ tầng production được tạo.
+
+## Jenkins job
+
+Loại job đúng là **Multibranch Pipeline**. Có thể chạy `seed-job` để tạo tự động
+job `docker-mb`, hoặc tạo thủ công với repository
+`https://github.com/ThanhMiracle/docker.git` và Script Path `Jenkinsfile`.
+
+Các plugin cần thiết được liệt kê trong
+[`jenkins/plugins.txt`](../jenkins/plugins.txt).
 
 ## Chuẩn bị AWS
 

@@ -1,0 +1,7 @@
+workflow-aggregator
+workflow-multibranch
+git
+credentials-binding
+job-dsl
+aws-credentials
+pipeline-utility-steps
