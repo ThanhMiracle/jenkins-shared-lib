@@ -21,20 +21,11 @@ class AsgPipelineConfig implements Serializable {
     boolean trivyEnabled
 
     static AsgPipelineConfig from(Map raw) {
-        [
-            'frontendImage',
-            'backendImage'
-        ].each { key ->
-            if (!raw[key]) {
-                throw new IllegalArgumentException("${key} is required")
-            }
-        }
-
         def c = new AsgPipelineConfig()
         c.dockerCredentialsId = (raw.dockerCredentialsId ?: '').toString()
         c.dockerRegistry = (raw.dockerRegistry ?: 'docker.io').toString()
-        c.frontendImage = raw.frontendImage.toString()
-        c.backendImage = raw.backendImage.toString()
+        c.frontendImage = (raw.frontendImage ?: '').toString()
+        c.backendImage = (raw.backendImage ?: '').toString()
         c.frontendContext = (raw.frontendContext ?: './frontend').toString()
         c.backendContext = (raw.backendContext ?: './backend').toString()
         c.frontendService = (raw.frontendService ?: 'frontend').toString()
@@ -66,16 +57,33 @@ class AsgPipelineConfig implements Serializable {
         return c
     }
 
-    String deploymentValidationError() {
-        def missing = [
-            artifactBucket: artifactBucket,
-            environmentParameter: environmentParameter,
-            autoScalingGroup: autoScalingGroup,
-            launchTemplateId: launchTemplateId
-        ].findAll { key, value -> !value?.trim() }.keySet()
+    String configurationValidationError() {
+        def missing = []
+        if (!frontendImage?.trim()) {
+            missing << 'frontendImage'
+        }
+        if (!backendImage?.trim()) {
+            missing << 'backendImage'
+        }
 
-        return missing
-            ? "${missing.join(', ')} required on main"
-            : ''
+        return missing ? "${missing.join(', ')} required" : ''
+    }
+
+    String deploymentValidationError() {
+        def missing = []
+        if (!artifactBucket?.trim()) {
+            missing << 'artifactBucket'
+        }
+        if (!environmentParameter?.trim()) {
+            missing << 'environmentParameter'
+        }
+        if (!autoScalingGroup?.trim()) {
+            missing << 'autoScalingGroup'
+        }
+        if (!launchTemplateId?.trim()) {
+            missing << 'launchTemplateId'
+        }
+
+        return missing ? "${missing.join(', ')} required on main" : ''
     }
 }

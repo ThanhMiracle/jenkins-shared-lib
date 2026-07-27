@@ -7,6 +7,7 @@ AWS_REGION="__AWS_REGION__"
 ARTIFACT_URI="__ARTIFACT_URI__"
 ENV_PARAMETER="__ENV_PARAMETER__"
 RELEASE="__RELEASE__"
+API_BASE="__API_BASE__"
 COMPOSE_VERSION="v2.30.3"
 
 if command -v dnf >/dev/null 2>&1; then
@@ -42,7 +43,25 @@ aws ssm get-parameter \
   --with-decryption \
   --query 'Parameter.Value' \
   --output text \
-  --region "${AWS_REGION}" > "/opt/app/releases/${RELEASE}/.env"
+  --region "${AWS_REGION}" > "/opt/app/releases/${RELEASE}/.env.ssm"
+
+awk -v api_base="${API_BASE}" '
+  BEGIN { replaced = 0 }
+  /^API_BASE=/ {
+    if (!replaced) {
+      print "API_BASE=" api_base
+      replaced = 1
+    }
+    next
+  }
+  { print }
+  END {
+    if (!replaced) {
+      print "API_BASE=" api_base
+    }
+  }
+' "/opt/app/releases/${RELEASE}/.env.ssm" > "/opt/app/releases/${RELEASE}/.env"
+rm -f "/opt/app/releases/${RELEASE}/.env.ssm"
 chmod 600 "/opt/app/releases/${RELEASE}/.env"
 
 ln -sfn "/opt/app/releases/${RELEASE}" /opt/app/current

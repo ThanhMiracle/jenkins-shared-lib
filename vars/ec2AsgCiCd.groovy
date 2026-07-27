@@ -19,6 +19,17 @@ def call(Map rawConfig = [:]) {
         }
 
         stages {
+            stage('Validate config') {
+                steps {
+                    script {
+                        def validationError = config.configurationValidationError()
+                        if (validationError) {
+                            error(validationError)
+                        }
+                    }
+                }
+            }
+
             stage('Checkout') {
                 steps {
                     checkout scm
@@ -210,11 +221,64 @@ private void deployToAsg(script, config) {
           --region '${config.awsRegion}'
     """
 
+    def loadBalancerArn = script.sh(
+        script: """
+            set -eu
+            TARGET_GROUP_ARN=\$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names '${config.autoScalingGroup}' \
+              --region '${config.awsRegion}' \
+              --query 'AutoScalingGroups[0].TargetGroupARNs[0]' \
+              --output text)
+            test -n "\${TARGET_GROUP_ARN}"
+            test "\${TARGET_GROUP_ARN}" != "None"
+            aws elbv2 describe-target-groups \
+              --target-group-arns "\${TARGET_GROUP_ARN}" \
+              --region '${config.awsRegion}' \
+              --query 'TargetGroups[0].LoadBalancerArns[0]' \
+              --output text
+        """,
+        returnStdout: true
+    ).trim()
+    if (!loadBalancerArn || loadBalancerArn == 'None') {
+        script.error("No ALB is attached to target groups for ASG ${config.autoScalingGroup}")
+    }
+
+    def loadBalancerDns = script.sh(
+        script: """
+            set -eu
+            aws elbv2 describe-load-balancers \
+              --load-balancer-arns '${loadBalancerArn}' \
+              --region '${config.awsRegion}' \
+              --query 'LoadBalancers[0].DNSName' \
+              --output text
+        """,
+        returnStdout: true
+    ).trim()
+    if (!loadBalancerDns || loadBalancerDns == 'None') {
+        script.error("Could not resolve the ALB DNS name for ${loadBalancerArn}")
+    }
+
+    def httpsListenerCount = script.sh(
+        script: """
+            set -eu
+            aws elbv2 describe-listeners \
+              --load-balancer-arn '${loadBalancerArn}' \
+              --region '${config.awsRegion}' \
+              --query 'length(Listeners[?Protocol==`HTTPS`])' \
+              --output text
+        """,
+        returnStdout: true
+    ).trim()
+    def apiScheme = httpsListenerCount != '0' ? 'https' : 'http'
+    def apiBase = "${apiScheme}://${loadBalancerDns}/api"
+    script.echo("Production API URL: ${apiBase}")
+
     def userData = script.libraryResource('org/ci/ec2-asg-bootstrap.sh')
         .replace('__AWS_REGION__', config.awsRegion)
         .replace('__ARTIFACT_URI__', artifactUri)
         .replace('__ENV_PARAMETER__', config.environmentParameter)
         .replace('__RELEASE__', script.env.RELEASE_TAG)
+        .replace('__API_BASE__', apiBase)
     script.writeFile(file: '.ec2-user-data.sh', text: userData)
 
     script.sh """

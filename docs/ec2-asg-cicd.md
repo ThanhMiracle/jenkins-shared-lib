@@ -7,12 +7,13 @@ backend trong một job.
 
 1. Checkout và validate Docker/Compose.
 2. Build backend source hiện tại thành image CI và chạy `pytest` trong image đó.
-3. Build hai image frontend và backend, tag bằng 12 ký tự Git SHA.
-4. Quét `HIGH,CRITICAL` bằng Trivy.
-5. Khi build nhánh `main`, validate AWS CLI, login và push image lên Docker Hub.
-6. Tạo Compose override trỏ đúng image SHA và upload bundle lên S3.
+3. Build hai image frontend và backend để kiểm tra Dockerfile và dependency.
+4. Quét `HIGH,CRITICAL` bằng Trivy nếu bật `trivyEnabled`.
+5. Khi build nhánh `main`, validate các biến deploy và AWS CLI.
+6. Đóng gói `docker-compose.prod.yml` cùng nginx config, rồi upload bundle lên S3.
 7. Tạo Launch Template version mới với user-data của release.
-8. Cập nhật ASG và chờ Instance Refresh hoàn tất. AWS tự rollback nếu refresh lỗi.
+8. Cập nhật ASG và chờ Instance Refresh hoàn tất. EC2 instance sẽ lấy `.env`
+   từ SSM Parameter Store rồi chạy `docker compose up -d`.
 
 ## Cách dùng
 
@@ -32,9 +33,10 @@ Repository ứng dụng cần có:
 └── nginx/nginx.conf
 ```
 
-Compose production có thể giữ nguyên như hiện tại. Pipeline tạo
-`docker-compose.release.yml` để override image frontend/API theo Git SHA, vì vậy
-không deploy bằng tag mutable `latest`.
+Compose production có thể giữ nguyên như hiện tại. Pipeline sẽ copy
+`docker-compose.prod.yml` thành `docker-compose.yml` trong bundle, rồi EC2
+instance dùng file đó trực tiếp với các image tag cố định đã khai báo trong
+compose.
 
 ## Jenkins agent
 
@@ -48,7 +50,6 @@ Agent cần có:
 Jenkins credentials:
 
 - `github-pat`: credential đọc GitHub repositories
-- `dockerhub-creds`: loại Username with password
 - `aws-prod`: loại AWS Credentials (cần plugin AWS Credentials)
 
 Nếu Jenkins chạy trên EC2/ECS có IAM role, bỏ hẳn `awsCredentialsId` khỏi
@@ -117,8 +118,8 @@ EC2 instance profile gắn vào Launch Template cần tối thiểu các quyền
 ```
 
 Không cần quyền `kms:Decrypt` nếu parameter dùng AWS-managed key mặc định.
-Docker Hub images phải public; nếu là private, bootstrap cần thêm cơ chế lấy
-Docker credentials từ Secrets Manager.
+Docker Hub images phải public; bootstrap hiện chỉ `pull` theo image tags đã ghi
+trong compose file, không login Docker Hub.
 
 IAM identity của Jenkins cần các action:
 
@@ -126,9 +127,13 @@ IAM identity của Jenkins cần các action:
 - `ec2:DescribeLaunchTemplates`
 - `ec2:CreateLaunchTemplateVersion`
 - `ec2:ModifyLaunchTemplate`
+- `autoscaling:DescribeAutoScalingGroups`
 - `autoscaling:UpdateAutoScalingGroup`
 - `autoscaling:StartInstanceRefresh`
 - `autoscaling:DescribeInstanceRefreshes`
+- `elasticloadbalancing:DescribeTargetGroups`
+- `elasticloadbalancing:DescribeLoadBalancers`
+- `elasticloadbalancing:DescribeListeners`
 
 Launch Template nên dùng Amazon Linux 2023 và đã gắn EC2 instance profile ở trên.
 ASG nên gắn vào Application Load Balancer target group với health-check endpoint
@@ -137,7 +142,7 @@ của ALB. User-data sẽ cài Docker, AWS CLI và Docker Compose nếu AMI chư
 
 ## Lưu ý về biến môi trường frontend
 
-Với SPA, biến như `API_BASE` thường được đóng vào bundle ở lúc build, không được
-đọc khi container đã chạy. Nếu frontend của bạn thuộc loại này, truyền
-`--build-arg API_BASE=...` trong bước build hoặc dùng cấu hình runtime
-`env.js`. Backend vẫn nhận `.env` bình thường từ Compose.
+Deploy stage tự tìm ALB gắn với target group đầu tiên của ASG. Bootstrap ghi
+`API_BASE=http(s)://<alb-dns>/api` vào `.env`; HTTPS được chọn khi ALB có HTTPS
+listener. Frontend hiện tại đọc giá trị này lúc container khởi động qua
+`env.js`. Các biến backend còn lại vẫn được lấy từ SSM Parameter Store.

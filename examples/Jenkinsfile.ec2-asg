@@ -8,9 +8,7 @@ library(
 )
 
 ec2AsgCiCd(
-    // Docker Hub repositories (không thêm tag ở đây).
-    dockerCredentialsId: 'dockerhub-creds',
-    dockerRegistry: 'docker.io',
+    // Image names used by docker-compose.prod.yml.
     frontendImage: 'thanh2909/simple-fullstack-docker-v3-ci-tests-frontend',
     backendImage: 'thanh2909/simple-fullstack-docker-v3-ci-tests-api',
     frontendContext: './frontend',
@@ -46,5 +44,5 @@ ec2AsgCiCd(
     autoScalingGroup: env.DEPLOY_ASG_NAME,
     launchTemplateId: env.DEPLOY_LAUNCH_TEMPLATE_ID,
 
-    trivyEnabled: true
+    trivyEnabled: false
 )

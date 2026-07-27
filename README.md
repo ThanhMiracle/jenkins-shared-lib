@@ -5,9 +5,9 @@ Shared Library này dành cho một ứng dụng gồm hai service:
 - `frontend`: SPA frontend
 - `api`: backend FastAPI
 
-Pipeline `ec2AsgCiCd(...)` chạy test, build và push hai Docker images, sau đó
-rolling deploy lên EC2 Auto Scaling Group bằng Launch Template và Instance
-Refresh.
+Pipeline `ec2AsgCiCd(...)` chạy test, build hai Docker images để kiểm tra, rồi
+đóng gói `docker-compose.prod.yml` và nginx config thành bundle để EC2 Auto
+Scaling Group pull và chạy bằng `docker compose`.
 
 ## Cấu trúc
 
@@ -24,15 +24,14 @@ Refresh.
 
 ## Cài đặt nhanh
 
-1. Tạo Jenkins credentials `github-pat`, `dockerhub-creds` và (nếu cần)
-   `aws-prod`.
+1. Tạo Jenkins credentials `github-pat` và (nếu cần) `aws-prod`.
 2. Copy [Jenkinsfile mẫu](examples/Jenkinsfile.ec2-asg) vào repository ứng dụng.
 3. Khai báo các environment variables AWS được liệt kê trong tài liệu.
 4. Chạy `seed-job`; Jenkinsfile tự tải shared library với tên `micro-lib@main`.
 
 Seed job đọc source từ `https://github.com/ThanhMiracle/docker.git` và tạo đúng
-một multibranch job: `docker-mb`. Mọi branch chạy CI; chỉ `main` push image và
-deploy.
+một multibranch job: `docker-mb`. Mọi branch chạy CI; chỉ `main` tạo bundle và
+deploy lên EC2 ASG.
 
 Xem [hướng dẫn đầy đủ](docs/ec2-asg-cicd.md) để cấu hình S3, SSM, IAM, Launch
 Template, ALB và Auto Scaling Group.
