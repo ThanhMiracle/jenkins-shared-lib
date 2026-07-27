@@ -98,7 +98,10 @@ def call(Map rawConfig = [:]) {
                 }
                 steps {
                     script {
-                        config.validateDeployment()
+                        def validationError = config.deploymentValidationError()
+                        if (validationError) {
+                            error(validationError)
+                        }
                     }
                     sh 'aws --version'
                 }

@@ -66,17 +66,16 @@ class AsgPipelineConfig implements Serializable {
         return c
     }
 
-    void validateDeployment() {
-        [
-            dockerCredentialsId: dockerCredentialsId,
+    String deploymentValidationError() {
+        def missing = [
             artifactBucket: artifactBucket,
             environmentParameter: environmentParameter,
             autoScalingGroup: autoScalingGroup,
             launchTemplateId: launchTemplateId
-        ].each { key, value ->
-            if (!value?.trim()) {
-                throw new IllegalArgumentException("${key} is required on main")
-            }
-        }
+        ].findAll { key, value -> !value?.trim() }.keySet()
+
+        return missing
+            ? "${missing.join(', ')} required on main"
+            : ''
     }
 }
