@@ -1,4 +1,3 @@
-import groovy.json.JsonOutput
 import org.ci.AsgPipelineConfig
 
 def call(Map rawConfig = [:]) {
@@ -105,6 +104,7 @@ def call(Map rawConfig = [:]) {
                 }
             }
 
+            /*
             stage('Push images') {
                 when {
                     branch 'main'
@@ -135,30 +135,18 @@ def call(Map rawConfig = [:]) {
                     }
                 }
             }
+            */
 
             stage('Create deployment bundle') {
                 when {
                     branch 'main'
                 }
                 steps {
-                    script {
-                        def releaseCompose = [
-                            services: [
-                                (config.frontendService): [image: "${config.frontendImage}:${env.RELEASE_TAG}"],
-                                (config.backendService): [image: "${config.backendImage}:${env.RELEASE_TAG}"]
-                            ]
-                        ]
-                        writeFile(
-                            file: 'docker-compose.release.yml',
-                            text: groovy.json.JsonOutput.prettyPrint(JsonOutput.toJson(releaseCompose))
-                        )
-                    }
                     sh """
                         set -eux
                         rm -rf .deploy-bundle
                         mkdir -p '.deploy-bundle/${config.nginxDir}'
                         cp '${config.composeFile}' .deploy-bundle/docker-compose.yml
-                        cp docker-compose.release.yml .deploy-bundle/
                         cp -R '${config.nginxDir}/.' '.deploy-bundle/${config.nginxDir}/'
                         tar -C .deploy-bundle -czf "release-${env.RELEASE_TAG}.tgz" .
                     """

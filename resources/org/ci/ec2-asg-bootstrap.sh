@@ -47,6 +47,6 @@ chmod 600 "/opt/app/releases/${RELEASE}/.env"
 
 ln -sfn "/opt/app/releases/${RELEASE}" /opt/app/current
 cd /opt/app/current
-docker compose -f docker-compose.yml -f docker-compose.release.yml pull
-docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --remove-orphans
+docker compose -f docker-compose.yml pull
+docker compose -f docker-compose.yml up -d --remove-orphans
 docker image prune -af --filter "until=168h"
